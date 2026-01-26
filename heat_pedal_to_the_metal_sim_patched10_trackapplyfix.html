@@ -1,0 +1,2646 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Heat: Pedal to the Metal — Core Rules Web Simulator (Unofficial)</title>
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#121a24; --panel2:#0f1620; --text:#e8f0ff; --muted:#9fb0c8;
+    --accent:#5bd6ff; --warn:#ffce5b; --bad:#ff5b74; --good:#7dff9b;
+    --line:#233246; --chip:#1b2738;
+    --radius:14px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:linear-gradient(180deg,#070a0f,#0b0f14);color:var(--text);}
+  header{
+    position:sticky;top:0;z-index:50;
+    display:flex;gap:12px;align-items:center;justify-content:space-between;
+    padding:10px 14px;background:rgba(10,14,20,.86);backdrop-filter: blur(8px);
+    border-bottom:1px solid var(--line);
+  }
+  header .left{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  header .right{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+  .title{font-weight:800;letter-spacing:.2px}
+  .pill{padding:6px 10px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.03);color:var(--muted);font-size:12px}
+  .btn{cursor:pointer;border:1px solid var(--line);background:rgba(255,255,255,.03);color:var(--text);
+    padding:8px 10px;border-radius:10px;font-weight:700;font-size:13px;}
+  .btn:hover{border-color:#34506f}
+  .btn.primary{background:rgba(91,214,255,.12);border-color:rgba(91,214,255,.35)}
+  .btn.danger{background:rgba(255,91,116,.12);border-color:rgba(255,91,116,.35)}
+  .btn.good{background:rgba(125,255,155,.12);border-color:rgba(125,255,155,.35)}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .btn.small{padding:6px 8px;font-size:12px;border-radius:9px}
+  input,select,textarea{background:rgba(255,255,255,.03);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+  input[type="color"]{padding:0;border:none;background:none;width:42px;height:32px}
+  textarea{width:100%;min-height:120px;resize:vertical}
+  .app{display:grid;grid-template-columns: 1.45fr 1fr;gap:12px;padding:12px;min-height:calc(100vh - 60px)}
+  .panel{background:rgba(18,26,36,.86);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+  .panel .hd{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line);background:rgba(255,255,255,.02)}
+  .panel .hd h2{margin:0;font-size:14px;letter-spacing:.2px}
+  .panel .bd{padding:12px}
+  .grid2{display:grid;grid-template-columns: 1fr 1fr;gap:10px}
+  .grid3{display:grid;grid-template-columns: 1fr 1fr 1fr;gap:10px}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .muted{color:var(--muted)}
+  .small{font-size:12px}
+  .hr{height:1px;background:var(--line);margin:10px 0}
+
+  /* Track */
+  .trackWrap{display:flex;flex-direction:column;height:100%}
+  .trackTools{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .trackView{
+    position:relative;
+    height:calc(100% - 48px);
+    overflow:auto;
+    background:linear-gradient(180deg, rgba(255,255,255,.01), rgba(255,255,255,0));
+  }
+  .trackGrid{
+    display:grid;
+    grid-auto-flow:column;
+    grid-auto-columns: var(--spaceW, 92px);
+    gap:8px;
+    padding:12px;
+    align-items:start;
+    min-height:420px;
+  }
+  .space{
+    border:1px solid var(--line);
+    border-radius:14px;
+    background:rgba(255,255,255,.02);
+    padding:8px;
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+    min-height:120px;
+    position:relative;
+  }
+  .space .idx{font-size:11px;color:var(--muted);display:flex;justify-content:space-between;gap:6px}
+  .badge{font-size:10px;padding:2px 6px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.03);color:var(--muted)}
+  .badge.finish{border-color:rgba(125,255,155,.4);background:rgba(125,255,155,.10);color:#bfffd0}
+  .badge.corner{border-color:rgba(255,206,91,.45);background:rgba(255,206,91,.10);color:#ffe7b0}
+  .spots{display:grid;grid-template-rows: 1fr 1fr;gap:6px;flex:1}
+  .spots.one{grid-template-rows: 1fr}
+  .spot{
+    border:1px dashed rgba(159,176,200,.35);
+    border-radius:12px;
+    min-height:40px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    position:relative;
+    background:rgba(255,255,255,.015);
+  }
+  .spot.raceline{border-style:solid;border-color:rgba(91,214,255,.25)}
+  .car{
+    width:30px;height:30px;border-radius:10px;
+    display:flex;align-items:center;justify-content:center;
+    font-weight:900;font-size:12px;
+    box-shadow:0 10px 25px rgba(0,0,0,.35);
+    border:1px solid rgba(255,255,255,.25);
+  }
+  .car.ai::after{content:"AI";position:absolute;bottom:-12px;font-size:9px;color:var(--muted)}
+  .carWrap{position:relative;display:flex;align-items:center;justify-content:center}
+
+  /* Cards */
+  .hand{display:flex;flex-wrap:wrap;gap:8px}
+  .card{
+    width:62px;height:84px;border-radius:12px;border:1px solid var(--line);
+    background:linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.01));
+    padding:8px;display:flex;flex-direction:column;justify-content:space-between;
+    cursor:pointer;user-select:none;
+  }
+  .card:hover{border-color:#3a5676}
+  .card.disabled{opacity:.4;cursor:not-allowed}
+  .card.selected{outline:2px solid rgba(91,214,255,.65);border-color:rgba(91,214,255,.45)}
+  .card .top{display:flex;justify-content:space-between;align-items:center;gap:6px}
+  .card .val{font-size:20px;font-weight:1000;letter-spacing:-.5px}
+  .card .tag{font-size:10px;color:var(--muted);padding:2px 6px;border:1px solid var(--line);border-radius:999px;background:rgba(0,0,0,.12)}
+  .card .btm{display:flex;justify-content:space-between;align-items:center}
+  .sym{font-weight:900}
+  .sym.plus{color:var(--accent)}
+  .sym.heat{color:var(--bad)}
+  .sym.stress{color:var(--warn)}
+
+  /* Log */
+  .log{max-height:200px;overflow:auto;border:1px solid var(--line);border-radius:12px;background:rgba(0,0,0,.18);padding:10px}
+  .log .item{font-size:12px;color:var(--muted);margin:0 0 8px 0}
+  .log .item strong{color:var(--text)}
+
+  /* Modal */
+  .modalBack{
+    position:fixed;inset:0;background:rgba(0,0,0,.6);
+    display:none;align-items:center;justify-content:center;z-index:100;
+  }
+  .modalBack.show{display:flex}
+  .modal{
+    width:min(860px, 92vw);
+    max-height:86vh;
+    overflow:auto;
+    background:rgba(18,26,36,.95);
+    border:1px solid var(--line);
+    border-radius:18px;
+    box-shadow:0 40px 120px rgba(0,0,0,.5);
+  }
+  .modal .mh{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line)}
+  .modal .mb{padding:12px}
+  .kbd{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;font-size:12px;color:#cfe3ff}
+  .note{padding:10px;border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.03);color:var(--muted)}
+  .tag2{font-size:11px;padding:2px 8px;border-radius:999px;background:rgba(255,255,255,.04);border:1px solid var(--line);color:var(--muted)}
+  .warn{color:#ffe1a3}
+  .goodTxt{color:#c7ffd5}
+  .badTxt{color:#ffb1bd}
+
+  /* Responsive */
+  @media (max-width: 980px){
+    .app{grid-template-columns:1fr;}
+    .trackView{height:auto;min-height:420px}
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="left">
+    <div class="title">Heat: Pedal to the Metal — Core Rules Web Simulator <span class="pill">Unofficial • no art/assets</span></div>
+    <div class="pill" id="phasePill">Phase: Setup</div>
+    <div class="pill" id="seedPill">Seed: —</div>
+  </div>
+  <div class="right">
+    <button class="btn small" id="btnUndo" title="Undo last action">Undo</button>
+    <button class="btn small" id="btnSave">Save</button>
+    <label class="btn small" for="fileLoad" style="display:inline-flex;align-items:center;gap:8px">Load</label>
+    <input id="fileLoad" type="file" accept="application/json" style="display:none" />
+    <button class="btn small" id="btnTrackEditor">Track Editor</button>
+    <button class="btn small" id="btnHelp">Help</button>
+    <button class="btn danger small" id="btnNew">New Game</button>
+  </div>
+</header>
+
+<div class="app">
+  <section class="panel trackWrap">
+    <div class="hd">
+      <h2>Track</h2>
+      <div class="trackTools">
+        <span class="tag2">Zoom</span>
+        <input id="zoom" type="range" min="68" max="140" value="92" />
+        <span class="tag2">Auto-scroll</span>
+        <select id="autoScroll">
+          <option value="on" selected>On</option>
+          <option value="off">Off</option>
+        </select>
+        <button class="btn small" id="btnCenter">Center on Active</button>
+      </div>
+    </div>
+    <div class="trackView" id="trackView">
+      <div class="trackGrid" id="trackGrid"></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="hd">
+      <h2 id="rightTitle">Setup</h2>
+      <div class="row">
+        <span class="tag2" id="turnTag">—</span>
+      </div>
+    </div>
+    <div class="bd" id="rightPanel"></div>
+  </section>
+
+  <section class="panel" style="grid-column: 1 / -1;">
+    <div class="hd">
+      <h2>Race Control Log</h2>
+      <div class="row">
+        <button class="btn small" id="btnClearLog">Clear</button>
+      </div>
+    </div>
+    <div class="bd">
+      <div class="log" id="log"></div>
+    </div>
+  </section>
+</div>
+
+<!-- Modal -->
+<div class="modalBack" id="modalBack" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="mh">
+      <div class="row" style="gap:10px;align-items:center">
+        <strong id="modalTitle">Modal</strong>
+        <span class="pill" id="modalSub" style="display:none"></span>
+      </div>
+      <button class="btn small" id="modalClose">Close</button>
+    </div>
+    <div class="mb" id="modalBody"></div>
+  </div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  /***********************
+   * RNG (seeded)
+   ***********************/
+  function xmur3(str){
+    let h = 1779033703 ^ str.length;
+    for (let i=0;i<str.length;i++){
+      h = Math.imul(h ^ str.charCodeAt(i), 3432918353);
+      h = (h << 13) | (h >>> 19);
+    }
+    return function(){
+      h = Math.imul(h ^ (h >>> 16), 2246822507);
+      h = Math.imul(h ^ (h >>> 13), 3266489909);
+      return (h ^= (h >>> 16)) >>> 0;
+    }
+  }
+  function mulberry32(a){
+    return function(){
+      let t = a += 0x6D2B79F5;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    }
+  }
+
+  /***********************
+   * Utilities
+   ***********************/
+  const $ = (sel, root=document) => root.querySelector(sel);
+  const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+  const deepClone = (obj) => JSON.parse(JSON.stringify(obj));
+
+  function clamp(n, a, b){ return Math.max(a, Math.min(b, n)); }
+
+  function uid(prefix="c"){
+    return prefix + "_" + Math.random().toString(16).slice(2) + "_" + Date.now().toString(16);
+  }
+
+  function downloadText(filename, text, mime="text/plain"){
+    const blob = new Blob([text], {type:mime});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
+  }
+
+  function fmtCard(c){
+    if (!c) return "—";
+    if (c.type === 'basic') return `Basic ${c.value}`;
+    if (c.type === 'upgrade') return `Upgrade ${c.value}`;
+    if (c.type === 'stress') return c.revealedCard ? `Stress (+→Basic ${c.revealedCard.value})` : `Stress (+)`;
+    if (c.type === 'heat') return `Heat`;
+    return c.type;
+  }
+
+  /***********************
+   * Rules helpers (from official core rules PDF)
+   * - Basic deck: 3x(1..4)
+   * - Starting upgrades: 0, 5, and 1 Heat-in-deck
+   * - Start: typically 6 Heat in engine + 3 Stress in deck; board defines counts.
+   ***********************/
+
+  function makeBasicDeck(color){
+    const cards = [];
+    for (let v=1; v<=4; v++){
+      for (let i=0;i<3;i++) cards.push({id:uid(`b${v}`), type:'basic', value:v, owner:color});
+    }
+    return cards;
+  }
+
+  function makeStartingUpgrades(color){
+    // Two are 0 and 5 (act like basic), but are discarded when flipped for symbol effects.
+    // Third is an extra Heat card shuffled into deck at start.
+    return [
+      {id:uid('u0'), type:'upgrade', value:0, owner:color, upgradeKind:'start'},
+      {id:uid('u5'), type:'upgrade', value:5, owner:color, upgradeKind:'start'},
+      {id:uid('uh'), type:'heat', value:0, owner:color, upgradeKind:'start-in-deck'},
+    ];
+  }
+
+  function makeStressCards(n, owner){
+    const arr=[];
+    for (let i=0;i<n;i++) arr.push({id:uid('s'), type:'stress', value:0, owner});
+    return arr;
+  }
+
+  function makeHeatCards(n, owner){
+    const arr=[];
+    for (let i=0;i<n;i++) arr.push({id:uid('h'), type:'heat', value:0, owner});
+    return arr;
+  }
+
+  function shuffleInPlace(arr, rng){
+    for (let i=arr.length-1;i>0;i--){
+      const j = Math.floor(rng()*(i+1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+  }
+
+  /***********************
+   * Default track preset (functional, original)
+   ***********************/
+  const DEFAULT_TRACK = {
+    name: "Desert Sprint (demo)",
+    spacesCount: 60,
+    spotsPerSpace: 2,
+    finishIndex: 0,
+    lapsRequired: 2,
+    corners: [
+      {cornerLineIndex: 12, speedLimit: 7},
+      {cornerLineIndex: 28, speedLimit: 6},
+      {cornerLineIndex: 45, speedLimit: 8}
+    ],
+    startGridStartIndex: 2
+  };
+
+  function normalizeTrack(t){
+    const out = deepClone(t);
+    out.spacesCount = clamp(parseInt(out.spacesCount||0,10), 10, 200);
+    out.spotsPerSpace = (parseInt(out.spotsPerSpace||2,10) === 1) ? 1 : 2;
+    out.finishIndex = clamp(parseInt(out.finishIndex||0,10), 0, out.spacesCount-1);
+    out.lapsRequired = clamp(parseInt(out.lapsRequired||2,10), 1, 9);
+    out.startGridStartIndex = clamp(parseInt(out.startGridStartIndex ?? 2,10), 0, out.spacesCount-1);
+    out.corners = Array.isArray(out.corners) ? out.corners.map(c => ({
+      cornerLineIndex: clamp(parseInt(c.cornerLineIndex||0,10), 0, out.spacesCount-1),
+      speedLimit: clamp(parseInt(c.speedLimit||0,10), 1, 20)
+    })).sort((a,b)=>a.cornerLineIndex-b.cornerLineIndex) : [];
+    // Merge duplicates by keeping the first.
+    const seen=new Set();
+    out.corners = out.corners.filter(c => {
+      if (seen.has(c.cornerLineIndex)) return false;
+      seen.add(c.cornerLineIndex); return true;
+    });
+    return out;
+  }
+
+
+  // Track persistence (so Track Editor changes don't "revert" on re-render/new game)
+  const TRACK_STORAGE_KEY = 'heat.customTrack.v1';
+
+  function getInitialTrack(){
+    try{
+      const raw = localStorage.getItem(TRACK_STORAGE_KEY);
+      if (!raw) return normalizeTrack(DEFAULT_TRACK);
+      return normalizeTrack(JSON.parse(raw));
+    }catch(e){
+      return normalizeTrack(DEFAULT_TRACK);
+    }
+  }
+
+  function setTrack(nextTrack, {persist=true, remapPositions=true} = {}){
+    const nt = normalizeTrack(nextTrack);
+    G.track = nt;
+    if (persist){
+      try{ localStorage.setItem(TRACK_STORAGE_KEY, JSON.stringify(nt)); }catch(e){}
+    }
+    if (remapPositions && Array.isArray(G.players)){
+      const N = nt.spacesCount;
+      for (const p of G.players){
+        if (!p || !p.pos) continue;
+        p.pos.idx = ((p.pos.idx % N) + N) % N;
+        p.pos.lane = (nt.spotsPerSpace===1) ? 0 : clamp(p.pos.lane,0,1);
+      }
+    }
+    return nt;
+  }
+
+
+  /***********************
+   * Game State
+   ***********************/
+  const PHASE = {
+    SETUP: 'setup',
+    PLANNING: 'planning',
+    RESOLUTION: 'resolution',
+    FINISHED: 'finished'
+  };
+
+  // Resolution sub-steps for active car
+  const STEP = {
+    REVEAL_MOVE: 'reveal_move',
+    ADRENALINE: 'adrenaline',
+    REACT: 'react',
+    SLIPSTREAM: 'slipstream',
+    CHECK_CORNER: 'check_corner',
+    DISCARD: 'discard',
+    REPLENISH: 'replenish',
+    DONE: 'done'
+  };
+
+  let G = null;
+  let rng = null;
+  let history = [];
+
+  function pushHistory(reason){
+    if (!G) return;
+    history.push({snap: deepClone(G), reason, t: Date.now()});
+    if (history.length > 60) history.shift();
+    updateUndoBtn();
+  }
+
+  function undo(){
+    if (!history.length) return;
+    const last = history.pop();
+    G = last.snap;
+    // Rebuild rng to current seed/stream index.
+    rng = makeRng(G.seed, G.rngCalls);
+    log(`Undo: ${last.reason}`);
+    renderAll();
+    updateUndoBtn();
+  }
+
+  function makeRng(seedStr, callCount=0){
+    const seedFn = xmur3(seedStr);
+    const r = mulberry32(seedFn());
+    // burn calls
+    for (let i=0;i<callCount;i++) r();
+    const wrap = () => {
+      G.rngCalls++;
+      return r();
+    };
+    return wrap;
+  }
+
+  function newGame(){
+    const seed = ("seed-" + Math.random().toString(16).slice(2,10));
+    G = {
+      version: 1,
+      seed,
+      rngCalls: 0,
+      phase: PHASE.SETUP,
+      track: getInitialTrack(),
+      players: [],
+      startedCount: 0,
+      planningIdx: 0,
+      round: 1,
+      resolveOrder: [],
+      resolveIdx: 0,
+      activeStep: STEP.REVEAL_MOVE,
+      adrenaline: {eligible:false, move:false, cooldownBonus:0},
+      cornerCrossed: [],
+      speedForCorner: 0,
+      crossedFinishFinal: false,
+      finishedOrder: [],
+      log: []
+    };
+    rng = makeRng(G.seed, 0);
+    history = [];
+    updateSeedPill();
+    pushHistory("Start new game");
+    renderAll();
+  }
+
+  /***********************
+   * Logging
+   ***********************/
+  function log(msg){
+    if (!G) return;
+    const line = `[R${G.round}] ${msg}`;
+    G.log.push({t:Date.now(), line});
+    const el = document.createElement('p');
+    el.className = 'item';
+    el.innerHTML = escapeHtml(line).replace(/\[(R\d+)\]/, '<strong>[$1]</strong>');
+    const box = $('#log');
+    box.appendChild(el);
+    // Auto-scroll to bottom so the newest events appear last (chronological reading).
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function escapeHtml(s){
+    return (s+"").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function rebuildLog(){
+    const box = $('#log');
+    box.innerHTML = '';
+    // Render chronologically: oldest at top, newest at bottom.
+    (G.log||[]).forEach(e => {
+      const p=document.createElement('p');
+      p.className='item';
+      p.innerHTML = escapeHtml(e.line).replace(/\[(R\d+)\]/, '<strong>[$1]</strong>');
+      box.appendChild(p);
+    });
+    box.scrollTop = box.scrollHeight;
+  }
+
+  /***********************
+   * Player helpers
+   ***********************/
+  function makePlayer({name, color, isAI=false, heatInEngine=6, stressInDeck=3}){
+    const basic = makeBasicDeck(color);
+    const upg = makeStartingUpgrades(color);
+    const stress = makeStressCards(stressInDeck, color);
+    const deck = [...basic, upg[0], upg[1], ...stress, upg[2]];
+    shuffleInPlace(deck, rng);
+    const p = {
+      id: uid('p'),
+      name: name || color,
+      color,
+      isAI,
+      gear: 1,
+      engine: makeHeatCards(heatInEngine, color),
+      deck,
+      discard: [],
+      hand: [],
+      play: [],
+      boostUsed: false,
+      pos: {idx: 0, lane: 0},
+      lap: 0,
+      finished: false,
+      removedFromTrack: false,
+      finishRank: null,
+      planned: {gearTarget: 1, payHeatForShift: false, cards: []},
+      publicTopDiscard: null,
+    };
+    // Draw 7
+    for (let i=0;i<7;i++) p.hand.push(drawFromDeck(p, {allowReshuffle:true}));
+    p.publicTopDiscard = topOf(p.discard);
+    return p;
+  }
+
+  function topOf(arr){ return arr.length ? arr[arr.length-1] : null; }
+
+  function drawFromDeck(p, {allowReshuffle=true}={}){
+    if (!p.deck.length){
+      if (!allowReshuffle) return null;
+      if (p.discard.length){
+        // shuffle discard into deck
+        const newDeck = p.discard.splice(0, p.discard.length);
+        shuffleInPlace(newDeck, rng);
+        p.deck = newDeck;
+      }
+    }
+    return p.deck.pop() || null;
+  }
+
+  function discardCards(p, cards){
+    for (const c of cards){
+      if (!c) continue;
+      p.discard.push(c);
+    }
+    p.publicTopDiscard = topOf(p.discard);
+  }
+
+  function payHeat(p, n){
+    const paid = Math.min(n, p.engine.length);
+    const moved = p.engine.splice(0, paid);
+    discardCards(p, moved);
+    return paid;
+  }
+
+  function addStressToHand(p, n){
+    const stress = makeStressCards(n, p.color);
+    // In the physical game, stress comes from a finite reserve; for this simulator we treat as effectively available.
+    p.hand.push(...stress);
+  }
+
+  function cardCanBePlayed(c){
+    return c && c.type !== 'heat';
+  }
+
+  function isNonDiscardable(c){
+    // Core rules: cannot choose to discard Stress or Heat cards (even upgrade ones).
+    return c && (c.type === 'heat' || c.type === 'stress');
+  }
+
+  /***********************
+   * Track / movement
+   ***********************/
+  function carSortKey(p){
+    // Car ordering on a looped track:
+    // progress = laps completed * spaces + distance since last crossing the finish line.
+    const N = G.track.spacesCount;
+    const dist = (p.pos.idx - G.track.finishIndex + N) % N;
+    const progress = (p.lap * N) + dist;
+    // Within same space, race line (lane 0) is ahead.
+    return (progress * 10) + (p.pos.lane === 0 ? 1 : 0);
+  }
+
+  function sortedCars(frontToBack=true, includeFinished=false){
+    const arr = G.players.filter(p => includeFinished ? true : !p.finished);
+    arr.sort((a,b)=>{
+      const da = carSortKey(a);
+      const db = carSortKey(b);
+      if (db !== da) return frontToBack ? (db - da) : (da - db);
+      // stable fallback: by original order
+      return G.players.indexOf(a) - G.players.indexOf(b);
+    });
+    return arr;
+  }
+
+  function occupiedAt(idx){
+    const occ=[null,null];
+    for (const p of G.players){
+      if (p.removedFromTrack) continue;
+      if (p.pos.idx === idx){
+        occ[p.pos.lane] = p;
+      }
+    }
+    return occ;
+  }
+
+  function isSpaceFull(idx){
+    const occ = occupiedAt(idx);
+    const spots = G.track.spotsPerSpace;
+    if (spots === 1) return !!occ[0];
+    return !!occ[0] && !!occ[1];
+  }
+
+  function findBestSpot(idx){
+    const spots = G.track.spotsPerSpace;
+    const occ = occupiedAt(idx);
+    if (spots === 1){
+      return occ[0] ? null : {idx, lane:0};
+    }
+    if (!occ[0]) return {idx, lane:0};
+    if (!occ[1]) return {idx, lane:1};
+    return null;
+  }
+
+  function placeWithBlocking(p, targetIdx){
+    // Cars may pass through cars, but cannot end on fully occupied space.
+    const N = G.track.spacesCount;
+    let idx = ((targetIdx % N) + N) % N;
+    let spot = findBestSpot(idx);
+    if (spot) return spot;
+    // Find first space with free spot behind the blocking cars.
+    for (let back=1; back<=N; back++){
+      const j = (idx - back + N) % N;
+      spot = findBestSpot(j);
+      if (spot) return spot;
+    }
+    // Should never happen
+    return {idx, lane:0};
+  }
+
+  function stepForward(idx){
+    const N = G.track.spacesCount;
+    return (idx + 1) % N;
+  }
+
+  function crossesCornerOnEnter(spaceIdx){
+    // Corner line at a specific index.
+    return (G.track.corners || []).find(c => c.cornerLineIndex === spaceIdx) || null;
+  }
+
+  function moveSteps(p, steps, opts={}){
+    // opts: {countCorners:true, allowFinishCross:true, forbidCrossFinish:false}
+    const N = G.track.spacesCount;
+    const countCorners = opts.countCorners ?? true;
+    const allowFinishCross = opts.allowFinishCross ?? true;
+    const forbidCrossFinish = opts.forbidCrossFinish ?? false;
+
+    let cornerCrossed = [];
+    let crossedFinishFinal = false;
+
+    let idx = p.pos.idx;
+    let lane = p.pos.lane;
+
+    for (let s=0; s<steps; s++){
+      let next = stepForward(idx);
+
+      // Handle finish crossing
+      if (next === G.track.finishIndex){
+        if (forbidCrossFinish){
+          // stop before crossing
+          break;
+        }
+        if (allowFinishCross){
+          // Crossing the finish line increments lap when entering finishIndex
+          p.lap += 1;
+          if (p.lap >= G.track.lapsRequired){
+            crossedFinishFinal = true;
+          }
+        }
+      }
+
+      idx = next;
+
+      if (countCorners && !crossedFinishFinal){
+        const corner = crossesCornerOnEnter(idx);
+        if (corner) cornerCrossed.push(corner);
+      }
+
+      // If crossedFinishFinal, corners after finish are disregarded (per core rules).
+    }
+
+    // Place with blocking at resulting idx
+    const placed = placeWithBlocking(p, idx);
+    p.pos.idx = placed.idx;
+    p.pos.lane = placed.lane;
+    return {cornerCrossed, crossedFinishFinal};
+  }
+
+  function moveExact(p, distance, opts={}){
+    // Moves forward by distance, applying stepwise finish/corner tracking and then blocking placement.
+    const res = moveSteps(p, distance, opts);
+    return res;
+  }
+
+  /***********************
+   * Turn flow
+   ***********************/
+  function ensurePlanning(){
+    if (G.phase !== PHASE.PLANNING) return;
+    // If current planning player is AI, auto-plan.
+    const p = G.players[G.planningIdx];
+    if (!p || p.finished) {
+      advancePlanningIdx();
+      return;
+    }
+    if (p.isAI){
+      pushHistory(`AI plan: ${p.name}`);
+      aiPlan(p);
+      p.planned.locked = true;
+      log(`${p.name} (AI) locks in gear ${p.gear} with ${p.planned.cards.length} card(s).`);
+      advancePlanningIdx();
+    }
+  }
+
+  function advancePlanningIdx(){
+    // Move to next not-finished player who isn't locked.
+    let tries = 0;
+    const n = G.players.length;
+    while (tries < n){
+      G.planningIdx = (G.planningIdx + 1) % n;
+      tries++;
+      const p = G.players[G.planningIdx];
+      if (p && !p.finished && !p.planned.locked) break;
+    }
+    // If all locked, begin resolution
+    if (G.players.filter(p => !p.finished).every(p => p.planned.locked)){
+      startResolution();
+    }
+    renderAll();
+    ensurePlanning();
+  }
+
+  function startPlanning(){
+    G.phase = PHASE.PLANNING;
+    G.planningIdx = 0;
+    for (const p of G.players){
+      p.boostUsed = false;
+      p.play = [];
+      p.planned = {gearTarget: p.gear, payHeatForShift:false, cards:[], locked:false};
+    }
+    log(`Planning begins for Round ${G.round}. (Gears + cards)`);
+    renderAll();
+    ensurePlanning();
+  }
+
+  function startResolution(){
+    G.phase = PHASE.RESOLUTION;
+    // Determine resolve order by current positions (frontmost first)
+    // Robust: store player indices, unique, excluding removed-from-track cars.
+    for (const pl of G.players){
+      pl._resolvedThisRound = false;
+    }
+    const order = sortedCars(true,false)
+      .filter(pp => !pp.removedFromTrack)
+      .map(pp => G.players.indexOf(pp));
+    // De-duplicate while preserving order
+    G.resolveOrder = Array.from(new Set(order));
+    G.resolveIdx = 0;
+    G.activeStep = STEP.REVEAL_MOVE;
+    G.cornerCrossed = [];
+    G.speedForCorner = 0;
+    G.crossedFinishFinal = false;
+    G.adrenaline = {eligible:false, move:false, cooldownBonus:0};
+
+    // Adrenaline eligibility based on number of cars that started the race (core rules mention start count)
+    // Core rules: last car to move, or last two cars in race with 5+ cars.
+    const started = G.startedCount || G.players.length;
+    const lastCount = (started >= 5) ? 2 : 1;
+    const backOrder = sortedCars(true,false); // front->back
+    const eligibleIds = backOrder.slice(-lastCount).map(p=>p.id);
+    G._adrenalineEligibleIds = eligibleIds;
+
+    log(`Resolution begins. Order: ${backOrder.map(p=>p.name).join(' → ')}`);
+    renderAll();
+    ensureResolutionAI();
+  }
+
+  function activePlayer(){
+    const token = G.resolveOrder[G.resolveIdx];
+    if (token === undefined || token === null) return null;
+    // Backward compatible: resolveOrder can store either player indices (number) or ids (string)
+    if (typeof token === 'number'){
+      return G.players[token] || null;
+    }
+    return G.players.find(p => p.id === token) || null;
+  }
+
+  function ensureResolutionAI(){
+    if (G.phase !== PHASE.RESOLUTION) return;
+    const p = activePlayer();
+    if (!p || p.finished) return;
+    if (!p.isAI) return;
+    // For AI in resolution, auto-pick choices (adrenaline, boost, slipstream, discard)
+    // We execute step-by-step as if clicking "Next" repeatedly.
+    // To keep UI responsive, we still require user to click Next to proceed, but auto-decide within steps.
+  }
+
+  function nextStep(){
+    if (!G) return;
+    if (G.phase === PHASE.PLANNING){
+      // In planning, Next means lock current player's choices
+      const p = G.players[G.planningIdx];
+      if (!p || p.finished) { advancePlanningIdx(); return; }
+      if (p.isAI) return; // AI auto
+      if (!p.planned.cards || p.planned.cards.length !== p.gear){
+        toast(`Select exactly ${p.gear} card(s) to play (no Heat).`);
+        return;
+      }
+      pushHistory(`Lock in: ${p.name}`);
+      p.planned.locked = true;
+      log(`${p.name} locks in gear ${p.gear} with ${p.planned.cards.length} card(s).`);
+      advancePlanningIdx();
+      return;
+    }
+
+    if (G.phase === PHASE.RESOLUTION){
+      const p = activePlayer();
+      if (!p){
+        // Safety: if resolve order got corrupted, rebuild remaining cars instead of skipping them.
+        if (rebuildResolutionOrderForRemaining()){
+          renderAll();
+          autoResolveAIIfNeeded();
+        }
+        return;
+      }
+      // If the active player is AI, avoid running the full manual step machine (prevents double-advancing when users click Next).
+      // Clicking Next during an AI turn triggers deterministic AI progression.
+      if (p.isAI){
+        // Ensure AI still performs its Reveal & Move when needed.
+        if (G.activeStep === STEP.REVEAL_MOVE){
+          pushHistory(`AI Reveal & Move: ${p.name}`);
+          const outcome = doRevealAndMove(p);
+          G.activeStep = (outcome && outcome.nextStep) ? outcome.nextStep : STEP.ADRENALINE;
+          renderAll();
+        }
+        autoResolveAIIfNeeded();
+        return;
+      }
+      // Skip cars removed from track
+      if (p.removedFromTrack){
+        advanceResolutionIdx();
+        return;
+      }
+
+      switch (G.activeStep){
+        case STEP.REVEAL_MOVE:
+          pushHistory(`Reveal & Move: ${p.name}`);
+          const outcome = doRevealAndMove(p);
+          G.activeStep = (outcome && outcome.nextStep) ? outcome.nextStep : STEP.ADRENALINE;
+          break;
+        case STEP.ADRENALINE:
+          pushHistory(`Adrenaline decision: ${p.name}`);
+          doAdrenaline(p);
+          G.activeStep = STEP.REACT;
+          break;
+        case STEP.REACT:
+          pushHistory(`End React: ${p.name}`);
+          endReact(p);
+          G.activeStep = STEP.SLIPSTREAM;
+          break;
+        case STEP.SLIPSTREAM:
+          if (G._slipPending){
+            toast("Choose Slipstream (or skip), then click Next.");
+            return;
+          }
+          pushHistory(`End Slipstream: ${p.name}`);
+          endSlipstream(p);
+          G.activeStep = STEP.CHECK_CORNER;
+          break;
+        case STEP.CHECK_CORNER:
+          pushHistory(`Check Corner: ${p.name}`);
+          doCheckCorner(p);
+          G.activeStep = STEP.DISCARD;
+          break;
+        case STEP.DISCARD:
+          if (G._discardPending){
+            toast("Select discardable cards (not Heat/Stress) then click 'Confirm Discard'.");
+            return;
+          }
+          pushHistory(`Discard step: ${p.name}`);
+          // discard handled by button; if none, proceed
+          G.activeStep = STEP.REPLENISH;
+          break;
+        case STEP.REPLENISH:
+          pushHistory(`Replenish: ${p.name}`);
+          doReplenish(p);
+          // After replenishing, immediately advance to the next car (hotseat flow).
+          // advanceResolutionIdx() already triggers render + AI auto-resolve where relevant.
+          advanceResolutionIdx();
+          return;
+
+case STEP.DONE:
+          advanceResolutionIdx();
+          break;
+        default:
+          advanceResolutionIdx();
+      }
+      renderAll();
+      // If AI, auto-resolve its choice points.
+      autoResolveAIIfNeeded();
+      return;
+    }
+  }
+
+  
+function resetPerCarGlobals(){
+  G.activeStep = STEP.REVEAL_MOVE;
+  G.cornerCrossed = [];
+  G.speedForCorner = 0;
+  G.crossedFinishFinal = false;
+  G.adrenaline = {eligible:false, move:false, cooldownBonus:0};
+  G._reactPending = false;
+  G._slipPending = false;
+  G._discardPending = false;
+}
+
+function rebuildResolutionOrderForRemaining(){
+  if (!G || G.phase !== PHASE.RESOLUTION) return false;
+  // Find any players who have NOT completed replenish this round (and are not finished/removed).
+  const remaining = G.players
+    .map((p, idx)=>({p, idx}))
+    .filter(o => !o.p.finished && !o.p.removedFromTrack && !o.p._resolvedThisRound);
+
+  if (!remaining.length) return false;
+
+  remaining.sort((a,b)=>{
+    const da = carSortKey(a.p);
+    const db = carSortKey(b.p);
+    if (db !== da) return db - da; // frontmost first
+    return a.idx - b.idx;
+  });
+
+  G.resolveOrder = remaining.map(o=>o.idx);
+  G.resolveIdx = 0;
+  resetPerCarGlobals();
+  log(`(Fix) Resolution order repaired for remaining cars: ${remaining.map(o=>o.p.name).join(' → ')}`);
+  return true;
+}
+
+function advanceResolutionIdx(){
+    // End current player's turn, move to next in order
+    G.resolveIdx++;
+    resetPerCarGlobals();
+
+    if (G.resolveIdx >= G.resolveOrder.length){
+      // Safety: if some cars somehow didn't get resolved, rebuild the resolution order instead of ending the round.
+      if (rebuildResolutionOrderForRemaining()){
+        renderAll();
+        autoResolveAIIfNeeded();
+        return;
+      }
+      // End of round: remove finished cars from track (but keep state)
+      endOfRoundCleanup();
+      if (G.players.every(p => p.finished)){
+        G.phase = PHASE.FINISHED;
+        log(`Race finished!`);
+      } else {
+        G.round++;
+        // Reset planning locks
+        for (const p of G.players){
+          if (p.finished) continue;
+          p.planned.locked = false;
+          p.planned.cards = [];
+        }
+        startPlanning();
+      }
+    }
+    renderAll();
+    autoResolveAIIfNeeded();
+  }
+
+  function endOfRoundCleanup(){
+    // Remove finished cars from the track only at the END of a round (not immediately when they cross).
+    // This matters for blocking + slipstream during the round.
+    for (const p of G.players){
+      if (p.finished && !p.removedFromTrack){
+        p.removedFromTrack = true;
+      }
+    }
+  }
+
+  /***********************
+   * Core mechanics
+   ***********************/
+  function applyShift(p, gearTarget){
+    gearTarget = clamp(gearTarget, 1, 4);
+    const delta = gearTarget - p.gear;
+    if (delta === 0){ p.gear = gearTarget; return {ok:true, paid:0}; }
+    if (Math.abs(delta) === 1){ p.gear = gearTarget; return {ok:true, paid:0}; }
+    if (Math.abs(delta) === 2){
+      // Pay 1 heat immediately
+      if (p.engine.length <= 0) return {ok:false, reason:"No Heat in engine to shift 2."};
+      payHeat(p, 1);
+      p.gear = gearTarget;
+      return {ok:true, paid:1};
+    }
+    return {ok:false, reason:"You may shift at most 2 gears."};
+  }
+
+  function resolveStressIntoBasic(p){
+    // Flip cards until a Basic card appears. Non-basic are discarded.
+    while (true){
+      const c = drawFromDeck(p, {allowReshuffle:true});
+      if (!c) return null;
+      if (c.type === 'basic'){
+        return c;
+      }
+      // Upgrades are discarded when flipped for symbol effects.
+      discardCards(p, [c]);
+    }
+  }
+
+  function doRevealAndMove(p){
+    p.boostUsed = false;
+    G.cornerCrossed = [];
+    G.speedForCorner = 0;
+    G.crossedFinishFinal = false;
+
+    // Transfer planned cards into play area (face-down already chosen)
+    p.play = p.planned.cards.map(id => {
+      const i = p.hand.findIndex(c => c.id === id);
+      if (i >= 0) return p.hand.splice(i,1)[0];
+      return null;
+    }).filter(Boolean);
+
+    // Cluttered hand rule: if not enough playable cards for gear, fill with Heat and do not move.
+    // In our UI we prevent selecting Heat. However, if player had too few playable cards, we auto-apply this.
+    if (p.play.length < p.gear){
+      const need = p.gear - p.play.length;
+      // Fill with Heat from hand if present
+      const heats = [];
+      for (let k=0;k<need;k++){
+        const hi = p.hand.findIndex(c => c.type === 'heat');
+        if (hi >= 0) heats.push(p.hand.splice(hi,1)[0]);
+      }
+      p.play.push(...heats);
+      log(`${p.name} has a cluttered hand and cannot play enough cards. No movement; gear drops to 1.`);
+      p.gear = 1;
+      // Discard play area immediately
+      discardCards(p, p.play.splice(0,p.play.length));
+      G.cornerCrossed = [];
+      G.cornersPaid = [];
+      G.speedForCorner = 0;
+      G.boostAddedSpeed = 0;
+      G.crossedFinishFinal = false;
+      // Skip straight to replenish
+      return { nextStep: STEP.REPLENISH };
+    }
+
+    // Resolve Stress cards: for each Stress played, flip until a Basic card appears.
+    // Important: the flipped Basic stays in the play area (stacked on the Stress) and is NOT eligible for reshuffle until replenish.
+    for (let i=0;i<p.play.length;i++){
+      const c = p.play[i];
+      if (c.type === 'stress' && !c.revealedCard){
+        const basic = resolveStressIntoBasic(p);
+        if (basic){
+          c.revealedCard = basic;
+        }
+      }
+    }
+
+    const speed = p.play.reduce((sum,c)=>{
+      if (c.type === 'stress') return sum + (c.revealedCard ? (c.revealedCard.value||0) : 0);
+      return sum + (c.value||0);
+    }, 0);
+    G.speedForCorner = speed;
+
+    // Move exactly speed spaces
+    const res = moveExact(p, speed, {countCorners:true, allowFinishCross:true, forbidCrossFinish:false});
+    G.cornerCrossed = res.cornerCrossed;
+    G.crossedFinishFinal = res.crossedFinishFinal;
+
+    log(`${p.name} reveals ${p.play.map(fmtCard).join(', ')} → Speed ${speed}. Moves to Space ${p.pos.idx}${p.pos.lane===0?" (RL)":" (OUT)"}.`);
+
+    // Mark finished? If lap >= required, consider finished for end of round. The car remains on track until end of round per rules; we keep it but flag.
+    if (G.crossedFinishFinal){
+      p.finished = true;
+      if (!G.finishedOrder.includes(p.id)) G.finishedOrder.push(p.id);
+      p.finishRank = G.finishedOrder.length;
+      log(`${p.name} crosses the finish line (final lap)!`);
+    }
+
+    // Determine adrenaline eligibility
+    G.adrenaline.eligible = (G._adrenalineEligibleIds || []).includes(p.id);
+    G.adrenaline.move = false;
+    G.adrenaline.cooldownBonus = 0;
+
+    // Prepare React pending flags
+    G._reactPending = false;
+    G._slipPending = true;
+    G._discardPending = true;
+
+    // If AI, auto-decide adrenaline now (still in step sequence)
+  }
+
+  function doAdrenaline(p){
+    if (!G.adrenaline.eligible){
+      log(`${p.name} is not eligible for Adrenaline.`);
+      return;
+    }
+    // Choice is made in UI; if AI, decide. We read G.adrenaline.move/cooldownBonus set by UI.
+    if (p.isAI){
+      // Conservative: take cooldown bonus if hand has heat; take +1 move only if safe relative to next corner.
+      const heatInHand = p.hand.some(c=>c.type==='heat');
+      G.adrenaline.cooldownBonus = heatInHand ? 1 : 0;
+      G.adrenaline.move = aiWantsAdrenalineMove(p);
+    }
+
+    if (G.adrenaline.move){
+      // Move 1 extra space and add +1 to speed for corner check.
+      const res = moveExact(p, 1, {countCorners:true, allowFinishCross:true, forbidCrossFinish:false});
+      G.cornerCrossed.push(...res.cornerCrossed);
+      if (res.crossedFinishFinal){
+        G.crossedFinishFinal = true;
+        p.finished = true;
+        if (!G.finishedOrder.includes(p.id)) G.finishedOrder.push(p.id);
+        p.finishRank = G.finishedOrder.length;
+      }
+      G.speedForCorner += 1;
+      log(`${p.name} uses Adrenaline: +1 speed, +1 move.`);
+    }
+
+    if (G.adrenaline.cooldownBonus){
+      log(`${p.name} uses Adrenaline: +1 Cooldown.`);
+    }
+  }
+
+  function cooldownCapacity(p){
+    let cap = 0;
+    if (p.gear === 1) cap += 3;
+    if (p.gear === 2) cap += 1;
+    cap += (G.adrenaline.cooldownBonus||0);
+    return cap;
+  }
+
+  function doCooldown(p, n){
+    n = clamp(n, 0, cooldownCapacity(p));
+    let moved = 0;
+    // move heat cards from hand back to engine
+    for (let i=p.hand.length-1; i>=0 && moved<n; i--){
+      const c = p.hand[i];
+      if (c.type === 'heat'){
+        p.hand.splice(i,1);
+        p.engine.unshift(c); // keep engine as queue for easy payHeat
+        moved++;
+      }
+    }
+    if (moved) log(`${p.name} cools down: returns ${moved} Heat from hand to engine.`);
+  }
+
+  function doBoost(p){
+    if (p.boostUsed) return {ok:false, reason:"Boost already used."};
+    if (p.engine.length <= 0) return {ok:false, reason:"No Heat in engine to pay for Boost."};
+    // Pay 1 heat
+    payHeat(p, 1);
+    // Flip until basic
+    const basic = resolveStressIntoBasic(p);
+    if (!basic) return {ok:false, reason:"No cards to flip."};
+    // Add to play area? Rules: symbol adds unknown 1-4 by flipping basic and adding it to play area.
+    p.play.push(basic);
+    const v = basic.value;
+    G.speedForCorner += v;
+    // Move accordingly (boost movement)
+    const res = moveExact(p, v, {countCorners:true, allowFinishCross:true, forbidCrossFinish:false});
+    G.cornerCrossed.push(...res.cornerCrossed);
+    if (res.crossedFinishFinal){
+      G.crossedFinishFinal = true;
+      p.finished = true;
+      if (!G.finishedOrder.includes(p.id)) G.finishedOrder.push(p.id);
+      p.finishRank = G.finishedOrder.length;
+    }
+    p.boostUsed = true;
+    log(`${p.name} BOOSTS (+): flips Basic ${v} → moves ${v} and increases corner-speed.`);
+    return {ok:true};
+  }
+
+  function endReact(p){
+    // After react is done
+    G._reactPending = false;
+  }
+
+  function slipEligible(p){
+    if (G.crossedFinishFinal) return false;
+    // Eligible if you land next to another car (same space other lane) OR in a space behind a car/cars (i.e., any car in the next space ahead).
+    const same = occupiedAt(p.pos.idx).some(x => x && x.id !== p.id);
+    const ahead = occupiedAt(stepForward(p.pos.idx)).some(x => x);
+    return same || ahead;
+  }
+
+  function doSlipstream(p, doIt){
+    if (!doIt) {
+      log(`${p.name} skips Slipstream.`);
+      return;
+    }
+    if (!slipEligible(p)){
+      log(`${p.name} cannot Slipstream.`);
+      return;
+    }
+    // Slipstream move 2 spaces, but cannot cross finish line.
+    const res = moveExact(p, 2, {countCorners:true, allowFinishCross:true, forbidCrossFinish:true});
+    if (res && res.cornerCrossed && res.cornerCrossed.length){
+      G.cornerCrossed.push(...res.cornerCrossed);
+    }
+    // Slipstream does NOT add to corner speed.
+    log(`${p.name} slipstreams +2 spaces.`);
+  }
+
+  function endSlipstream(p){
+    G._slipPending = false;
+  }
+
+  function doCheckCorner(p){
+    // Only applies if crossed a corner line
+    const list = (G.cornerCrossed||[]);
+    if (!list.length){
+      log(`${p.name} crosses no corners.`);
+      return;
+    }
+    // Pay each separately in order crossed.
+    for (const corner of list){
+      const limit = corner.speedLimit;
+      const speed = G.speedForCorner;
+      if (speed <= limit){
+        log(`${p.name} corner @${corner.cornerLineIndex}: Speed ${speed} ≤ Limit ${limit}. OK.`);
+        continue;
+      }
+      const need = speed - limit;
+      const paid = payHeat(p, need);
+      if (paid === need){
+        log(`${p.name} corner @${corner.cornerLineIndex}: Speed ${speed} > ${limit}. Pays ${need} Heat.`);
+        continue;
+      }
+      // Spin out
+      log(`${p.name} corner @${corner.cornerLineIndex}: needed ${need} Heat but paid only ${paid} → SPIN OUT!`);
+      // Move back to first available space before the corner line that caused it.
+      const N = G.track.spacesCount;
+      const before = (corner.cornerLineIndex - 1 + N) % N;
+      // Find first available space at or before 'before' going backward.
+      let target = before;
+      let placed = findBestSpot(target);
+      if (!placed){
+        for (let back=1; back<=N; back++){
+          const j = (before - back + N) % N;
+          placed = findBestSpot(j);
+          if (placed) { target = j; break; }
+        }
+      }
+      p.pos.idx = placed.idx;
+      p.pos.lane = placed.lane;
+
+      // Take stress into hand: +1 in gear 1/2, +2 in gear 3/4
+      const add = (p.gear <= 2) ? 1 : 2;
+      addStressToHand(p, add);
+      p.gear = 1;
+      log(`${p.name} spins out → back to Space ${p.pos.idx}. Takes ${add} Stress into hand. Gear → 1.`);
+      // After spin out, stop checking remaining corners.
+      break;
+    }
+  }
+
+  function doReplenish(p){
+    // Move all play area cards to discard (include any Stress-revealed Basic cards)
+    if (p.play.length){
+      const toDiscard = [];
+      while (p.play.length){
+        const c = p.play.shift();
+        if (c.type === 'stress' && c.revealedCard){
+          toDiscard.push(c.revealedCard);
+          delete c.revealedCard;
+        }
+        toDiscard.push(c);
+      }
+      discardCards(p, toDiscard);
+    }
+    // Draw back up to 7
+    while (p.hand.length < 7){
+      const c = drawFromDeck(p, {allowReshuffle:true});
+      if (!c) break;
+      p.hand.push(c);
+    }
+    log(`${p.name} replenishes to ${p.hand.length} card(s). Deck ${p.deck.length}, Discard ${p.discard.length}, Engine Heat ${p.engine.length}.`);
+    p._resolvedThisRound = true;
+
+    // If finished this round, keep them flagged. Core rules remove at end of round; we keep visible but marked.
+  }
+
+  /***********************
+   * Discard UI action
+   ***********************/
+  function confirmDiscard(p, selectedIds){
+    // Can discard any number except heat/stress.
+    const ids = new Set(selectedIds);
+    const toDisc = [];
+    const keep = [];
+    for (const c of p.hand){
+      if (ids.has(c.id)){
+        if (isNonDiscardable(c)){
+          keep.push(c);
+        } else {
+          toDisc.push(c);
+        }
+      } else keep.push(c);
+    }
+    p.hand = keep;
+    if (toDisc.length){
+      discardCards(p, toDisc);
+      log(`${p.name} discards ${toDisc.map(fmtCard).join(', ')}.`);
+    } else {
+      log(`${p.name} discards nothing.`);
+    }
+
+    // Discard is step 8; after confirming (or skipping) we must advance to step 9.
+    G._discardPending = false;
+    if (G.phase === PHASE.RESOLUTION && G.activeStep === STEP.DISCARD){
+      G.activeStep = STEP.REPLENISH;
+    }
+    renderAll();
+  }
+
+  /***********************
+   * AI
+   ***********************/
+  function nearestCornerAheadFrom(idx, maxSteps){
+    const N = G.track.spacesCount;
+    for (let s=1; s<=maxSteps; s++){
+      const j = (idx + s) % N;
+      const corner = crossesCornerOnEnter(j);
+      if (corner) return {corner, steps:s};
+      // If we'd hit finish on final lap, corners after finish are ignored; AI simplification ignores that.
+    }
+    return null;
+  }
+
+  function aiWantsAdrenalineMove(p){
+    // If +1 move likely helps without causing corner risk beyond engine heat.
+    const probe = nearestCornerAheadFrom(p.pos.idx, 10);
+    if (!probe) return true;
+    const limit = probe.corner.speedLimit;
+    const speed = G.speedForCorner + 1;
+    const need = Math.max(0, speed - limit);
+    return need <= p.engine.length;
+  }
+
+  function aiPlan(p){
+    // Conservative planning:
+    // 1) If hand has lots of Heat, go low gear to cooldown.
+    const heatInHand = p.hand.filter(c=>c.type==='heat').length;
+    const playable = p.hand.filter(cardCanBePlayed);
+    // Choose gear
+    let desiredGear = p.gear;
+    if (heatInHand >= 3) desiredGear = 1;
+    else if (heatInHand === 2) desiredGear = 2;
+    else desiredGear = clamp(p.gear + 1, 1, 4);
+
+    // Avoid shifting 2 unless enough heat
+    let delta = desiredGear - p.gear;
+    if (Math.abs(delta) === 2 && p.engine.length <= 0){
+      desiredGear = p.gear + Math.sign(delta); // shift 1 instead
+    }
+
+    // Apply shift
+    applyShift(p, desiredGear);
+
+    // Select cards to play: try to keep speed near corner limit
+    const needCards = p.gear;
+    const handPlayable = p.hand.filter(cardCanBePlayed);
+
+    // Determine a safe speed target based on nearest corner within ~12 spaces
+    const probe = nearestCornerAheadFrom(p.pos.idx, 12);
+    let targetSpeed = 8;
+    if (probe){
+      targetSpeed = probe.corner.speedLimit + Math.min(1, p.engine.length); // allow slight overspeed
+    } else {
+      targetSpeed = 10;
+    }
+
+    // Build best subset of size needCards to get close to targetSpeed, avoid stress if possible.
+    const candidates = handPlayable.slice();
+    // Sort by preferring non-stress
+    candidates.sort((a,b)=>{
+      const sa = (a.type==='stress') ? 1 : 0;
+      const sb = (b.type==='stress') ? 1 : 0;
+      if (sa !== sb) return sa - sb;
+      return (b.value||0) - (a.value||0);
+    });
+
+    // Simple greedy: pick high cards then adjust
+    let picked=[];
+    for (const c of candidates){
+      if (picked.length>=needCards) break;
+      picked.push(c);
+    }
+
+    // Try small swaps to get closer to target
+    function sum(arr){ return arr.reduce((s,c)=>s+(c.value||0),0); }
+    let best = picked.slice();
+    let bestDiff = Math.abs(sum(best)-targetSpeed) + best.filter(c=>c.type==='stress').length*1.5;
+
+    // brute small search if candidates not too many
+    const pool = candidates.slice(0, Math.min(10, candidates.length));
+    const n=pool.length;
+    if (n>=needCards && needCards<=4){
+      // enumerate combinations
+      const idxs = Array.from({length:needCards}, (_,i)=>i);
+      function evalCombo(idxs){
+        const combo = idxs.map(i=>pool[i]);
+        const diff = Math.abs(sum(combo)-targetSpeed) + combo.filter(c=>c.type==='stress').length*1.5;
+        if (diff < bestDiff){ bestDiff=diff; best=combo; }
+      }
+      // generate combinations
+      function comb(start, depth, acc){
+        if (acc.length===needCards){ evalCombo(acc); return; }
+        for (let i=start;i<n;i++) comb(i+1, depth+1, acc.concat(i));
+      }
+      comb(0,0,[]);
+    }
+
+    p.planned.cards = best.map(c=>c.id);
+  }
+
+  function autoResolveAIIfNeeded(){
+    if (G.phase !== PHASE.RESOLUTION) return;
+    const p = activePlayer();
+    if (!p || !p.isAI || p.finished) return;
+
+    // If we are at adrenaline step, decide now.
+    if (G.activeStep === STEP.ADRENALINE){
+      doAdrenaline(p);
+      G.activeStep = STEP.REACT;
+    }
+
+    // React: do cooldown and maybe boost
+    if (G.activeStep === STEP.REACT){
+      const cap = cooldownCapacity(p);
+      if (cap > 0){
+        // move as many heat from hand as possible
+        doCooldown(p, cap);
+      }
+      // Boost? Only if it won't likely cause spin out (needs enough heat)
+      const probe = nearestCornerAheadFrom(p.pos.idx, 10);
+      const limit = probe ? probe.corner.speedLimit : 99;
+      const predicted = G.speedForCorner;
+      const need = Math.max(0, predicted - limit);
+      // Boost increases speed; conservative: only boost if far from any corner soon
+      const safe = !probe || probe.steps > 6;
+      if (!p.boostUsed && p.engine.length >= (need + 1) && safe){
+        doBoost(p);
+      }
+      G._reactPending = false;
+      G.activeStep = STEP.SLIPSTREAM;
+    }
+
+    if (G.activeStep === STEP.SLIPSTREAM){
+      const can = slipEligible(p);
+      if (can){
+        // Conservative: slipstream if it doesn't approach a corner too soon.
+        const probe = nearestCornerAheadFrom(p.pos.idx, 6);
+        const doIt = !probe;
+        doSlipstream(p, doIt);
+      }
+      G._slipPending = false;
+      G.activeStep = STEP.CHECK_CORNER;
+    }
+
+    if (G.activeStep === STEP.CHECK_CORNER){
+      doCheckCorner(p);
+      G.activeStep = STEP.DISCARD;
+    }
+
+    if (G.activeStep === STEP.DISCARD){
+      // Discard non-essential non-stress/heat, keep high cards
+      const disc=[];
+      for (const c of p.hand){
+        if (isNonDiscardable(c)) continue;
+        if (c.type==='basic' && c.value>=3) continue;
+        if (c.type==='upgrade' && c.value>=5) continue;
+        // discard low stuff
+        disc.push(c.id);
+      }
+      confirmDiscard(p, disc);
+      G.activeStep = STEP.REPLENISH;
+    }
+
+    if (G.activeStep === STEP.REPLENISH){
+      doReplenish(p);
+      // Immediately advance to next car after replenishing.
+      advanceResolutionIdx();
+      return;
+    }
+
+    if (G.activeStep === STEP.DONE){
+      advanceResolutionIdx();
+    }
+
+    renderAll();
+  }
+
+  /***********************
+   * Rendering
+   ***********************/
+  function updateSeedPill(){
+    $('#seedPill').textContent = `Seed: ${G.seed}`;
+  }
+
+  function updatePhasePill(){
+    const map={setup:"Setup",planning:"Planning",resolution:"Resolution",finished:"Finished"};
+    $('#phasePill').textContent = `Phase: ${map[G.phase]||G.phase}`;
+  }
+
+  function updateUndoBtn(){
+    $('#btnUndo').disabled = history.length === 0;
+    $('#btnUndo').textContent = history.length ? `Undo (${history.length})` : 'Undo';
+  }
+
+  function renderTrack(){
+    const grid = $('#trackGrid');
+    const t = G.track;
+    document.documentElement.style.setProperty('--spaceW', $('#zoom').value + 'px');
+
+    grid.innerHTML = '';
+    for (let i=0;i<t.spacesCount;i++){
+      const space = document.createElement('div');
+      space.className = 'space';
+      const corner = (t.corners||[]).find(c=>c.cornerLineIndex===i);
+      const badges = [];
+      if (i === t.finishIndex) badges.push(`<span class="badge finish">FINISH</span>`);
+      if (corner) badges.push(`<span class="badge corner">CORNER ≤${corner.speedLimit}</span>`);
+
+      space.innerHTML = `
+        <div class="idx">
+          <span>#${i}</span>
+          <span style="display:flex;gap:6px;align-items:center">${badges.join('')}</span>
+        </div>
+        <div class="spots ${t.spotsPerSpace===1?'one':''}">
+          <div class="spot raceline" data-idx="${i}" data-lane="0"></div>
+          ${t.spotsPerSpace===2?`<div class="spot" data-idx="${i}" data-lane="1"></div>`:''}
+        </div>
+      `;
+      grid.appendChild(space);
+    }
+
+    // place cars
+    for (const p of G.players){
+      if (p.removedFromTrack) continue; // cars stay on track until end of round even if they finish.
+      const spot = $(`.spot[data-idx="${p.pos.idx}"][data-lane="${p.pos.lane}"]`, grid);
+      if (!spot) continue;
+      spot.innerHTML = '';
+      const wrap = document.createElement('div');
+      wrap.className = 'carWrap';
+      const token = document.createElement('div');
+      token.className = 'car' + (p.isAI ? ' ai' : '');
+      token.style.background = p.color;
+      token.textContent = p.name.slice(0,1).toUpperCase();
+      if (p.finished){
+        token.style.outline = '2px solid rgba(125,255,155,.7)';
+        token.style.opacity = '0.85';
+      }
+      token.title = `${p.name} (Gear ${p.gear}) Space ${p.pos.idx} Lane ${p.pos.lane===0?'Race Line':'Outside'} Lap ${p.lap}/${G.track.lapsRequired}`;
+      wrap.appendChild(token);
+      spot.appendChild(wrap);
+    }
+  }
+
+  function renderRight(){
+    updatePhasePill();
+    updateSeedPill();
+
+    const right = $('#rightPanel');
+    const title = $('#rightTitle');
+    const turnTag = $('#turnTag');
+
+    if (G.phase === PHASE.SETUP){
+      title.textContent = 'Setup';
+      turnTag.textContent = '—';
+      right.innerHTML = renderSetupUI();
+      hookSetupUI();
+      return;
+    }
+
+    if (G.phase === PHASE.PLANNING){
+      title.textContent = `Planning (Round ${G.round})`;
+      const p = G.players[G.planningIdx];
+      turnTag.textContent = p ? `Player: ${p.name}` : '—';
+      right.innerHTML = renderPlanningUI(p);
+      hookPlanningUI(p);
+      return;
+    }
+
+    if (G.phase === PHASE.RESOLUTION){
+      const p = activePlayer();
+      title.textContent = `Resolution (Round ${G.round})`;
+      turnTag.textContent = p ? `Active: ${p.name} • Step: ${prettyStep(G.activeStep)}` : '—';
+      right.innerHTML = renderResolutionUI(p);
+      hookResolutionUI(p);
+      return;
+    }
+
+    if (G.phase === PHASE.FINISHED){
+      title.textContent = 'Finished';
+      turnTag.textContent = 'Race over';
+      right.innerHTML = renderFinishedUI();
+      hookFinishedUI();
+      return;
+    }
+  }
+
+  function prettyStep(step){
+    const m={
+      reveal_move:"Reveal & Move",
+      adrenaline:"Adrenaline",
+      react:"React",
+      slipstream:"Slipstream",
+      check_corner:"Check Corner",
+      discard:"Discard",
+      replenish:"Replenish",
+      done:"Done"
+    };
+    return m[step]||step;
+  }
+
+  function renderSetupUI(){
+    const t = G.track;
+    const players = G.players;
+
+    const playerRows = players.map((p, idx) => `
+      <div class="note" style="display:flex;flex-direction:column;gap:8px">
+        <div class="row" style="justify-content:space-between">
+          <strong>${escapeHtml(p.name)}</strong>
+          <div class="row">
+            <span class="tag2">${p.isAI?'AI':'Human'}</span>
+            <button class="btn small danger" data-act="rmPlayer" data-idx="${idx}">Remove</button>
+          </div>
+        </div>
+        <div class="grid3">
+          <label class="small">Name<br><input data-act="pName" data-idx="${idx}" value="${escapeHtml(p.name)}" /></label>
+          <label class="small">Color<br><input data-act="pColor" data-idx="${idx}" type="color" value="${p.color}" /></label>
+          <label class="small">Control<br>
+            <select data-act="pAI" data-idx="${idx}">
+              <option value="0" ${!p.isAI?'selected':''}>Human</option>
+              <option value="1" ${p.isAI?'selected':''}>AI</option>
+            </select>
+          </label>
+        </div>
+      </div>
+    `).join('');
+
+    return `
+      <div class="note">
+        <div class="row" style="justify-content:space-between">
+          <div>
+            <strong>Seeded RNG</strong>
+            <div class="small muted">Same seed + same actions → same results.</div>
+          </div>
+          <div class="row">
+            <input id="seedInput" style="width:220px" value="${escapeHtml(G.seed)}" />
+            <button class="btn small" data-act="setSeed">Set</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="hr"></div>
+
+      <div class="note">
+        <div class="row" style="justify-content:space-between">
+          <div>
+            <strong>Track Preset</strong>
+            <div class="small muted">You can edit later in Track Editor.</div>
+          </div>
+          <div class="row">
+            <button class="btn small" data-act="resetTrack">Reset to default</button>
+          </div>
+        </div>
+        <div class="grid3" style="margin-top:8px">
+          <label class="small">Spaces<br><input id="trkSpaces" type="number" min="10" max="200" value="${t.spacesCount}" /></label>
+          <label class="small">Spots/Space<br>
+            <select id="trkSpots">
+              <option value="2" ${t.spotsPerSpace===2?'selected':''}>2 (race line + outside)</option>
+              <option value="1" ${t.spotsPerSpace===1?'selected':''}>1</option>
+            </select>
+          </label>
+          <label class="small">Finish Index<br><input id="trkFinish" type="number" min="0" max="${t.spacesCount-1}" value="${t.finishIndex}" /></label>
+          <label class="small">Laps Required<br><input id="trkLaps" type="number" min="1" max="9" value="${t.lapsRequired}" /></label>
+          <label class="small">Start Grid Index<br><input id="trkStart" type="number" min="0" max="${t.spacesCount-1}" value="${t.startGridStartIndex||2}" /></label>
+          <div class="small muted" style="align-self:end">Corners editable in Track Editor.</div>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <button class="btn small" data-act="applyTrackBasics">Apply Track Basics</button>
+          <span class="small muted">Current corners: ${(t.corners||[]).map(c=>`@${c.cornerLineIndex}≤${c.speedLimit}`).join(', ')||'none'}</span>
+        </div>
+      </div>
+
+      <div class="hr"></div>
+
+      <div class="note">
+        <div class="row" style="justify-content:space-between">
+          <div>
+            <strong>Players</strong>
+            <div class="small muted">1–6 players. You can add 1–2 dummy AI cars if you like.</div>
+          </div>
+          <div class="row">
+            <button class="btn small" data-act="addHuman">+ Human</button>
+            <button class="btn small" data-act="addAI">+ AI</button>
+          </div>
+        </div>
+        <div class="grid2" style="margin-top:10px">
+          <label class="small">Default Heat in Engine<br><input id="cfgHeat" type="number" min="0" max="12" value="6" /></label>
+          <label class="small">Default Stress in Deck<br><input id="cfgStress" type="number" min="0" max="8" value="3" /></label>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <button class="btn small" data-act="randomizeGrid">Randomize Starting Grid</button>
+          <span class="small muted">Starting grid fills spots in ascending order.</span>
+        </div>
+        <div class="hr"></div>
+        <div class="grid2">${playerRows || '<div class="muted">Add at least 1 player.</div>'}</div>
+      </div>
+
+      <div class="hr"></div>
+
+      <div class="row" style="justify-content:space-between">
+        <div class="note" style="flex:1">
+          <strong>Ready?</strong>
+          <div class="small muted">Start the race: build decks (12 Basic + 3 Starting Upgrades + Stress) and place Heat in engine. Draw 7.</div>
+        </div>
+        <button class="btn primary" data-act="start">Start Race</button>
+      </div>
+
+      <div class="note small" style="margin-top:10px">
+        <div><strong>Core rules implemented</strong>: shift gears, play cards (no Heat), reveal & move, stress randomness (+), adrenaline for last car(s), cooldown, boost, slipstream, corner checks + spin out, discard restrictions, replenish + reshuffle, finish rules.</div>
+      </div>
+    `;
+  }
+
+  function hookSetupUI(){
+    $$('[data-act]', $('#rightPanel')).forEach(el => {
+      el.addEventListener('click', () => {
+        const act = el.getAttribute('data-act');
+        if (act === 'addHuman') addPlayer(false);
+        if (act === 'addAI') addPlayer(true);
+        if (act === 'start') startRace();
+        if (act === 'randomizeGrid') { pushHistory('Randomize starting grid'); randomizeStartingGrid(); renderAll(); }
+        if (act === 'resetTrack') { pushHistory('Reset track'); setTrack(DEFAULT_TRACK, {persist:true, remapPositions:true}); renderAll(); }
+        if (act === 'applyTrackBasics') { pushHistory('Apply track basics'); applyTrackBasics(); renderAll(); }
+        if (act === 'setSeed') { pushHistory('Set seed'); setSeedFromInput(); renderAll(); }
+      });
+    });
+
+    // Remove player
+    $$('[data-act="rmPlayer"]', $('#rightPanel')).forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = parseInt(btn.getAttribute('data-idx'),10);
+        pushHistory('Remove player');
+        G.players.splice(idx,1);
+        renderAll();
+      });
+    });
+
+    // Player edits
+    $$('[data-act="pName"]', $('#rightPanel')).forEach(inp => {
+      inp.addEventListener('input', () => {
+        const idx = parseInt(inp.getAttribute('data-idx'),10);
+        G.players[idx].name = inp.value.trim() || G.players[idx].color;
+        renderTrack();
+      });
+    });
+    $$('[data-act="pColor"]', $('#rightPanel')).forEach(inp => {
+      inp.addEventListener('input', () => {
+        const idx = parseInt(inp.getAttribute('data-idx'),10);
+        G.players[idx].color = inp.value;
+        renderTrack();
+      });
+    });
+    $$('[data-act="pAI"]', $('#rightPanel')).forEach(sel => {
+      sel.addEventListener('change', () => {
+        const idx = parseInt(sel.getAttribute('data-idx'),10);
+        G.players[idx].isAI = sel.value === '1';
+        renderTrack();
+      });
+    });
+  }
+
+  function applyTrackBasics(){
+    const spaces = parseInt($('#trkSpaces').value,10);
+    const spots = parseInt($('#trkSpots').value,10);
+    const finish = parseInt($('#trkFinish').value,10);
+    const laps = parseInt($('#trkLaps').value,10);
+    const start = parseInt($('#trkStart').value,10);
+    const t = normalizeTrack({...G.track, spacesCount:spaces, spotsPerSpace:spots, finishIndex:finish, lapsRequired:laps, startGridStartIndex:start});
+    // Re-clip corners into new range
+    t.corners = (G.track.corners||[]).filter(c => c.cornerLineIndex < t.spacesCount);
+    setTrack(t, {persist:true, remapPositions:true});
+  }
+
+  function setSeedFromInput(){
+    const s = ($('#seedInput').value||'').trim();
+    if (!s){ toast('Seed cannot be empty.'); return; }
+    G.seed = s;
+    G.rngCalls = 0;
+    rng = makeRng(G.seed, 0);
+    log(`Seed set to ${G.seed}.`);
+  }
+
+  function addPlayer(isAI){
+    if (G.players.length >= 6){ toast('Max 6 players.'); return; }
+    pushHistory('Add player');
+    const palette = ['#ff5b74','#5bd6ff','#7dff9b','#ffce5b','#b58cff','#ff8c5b'];
+    const used = new Set(G.players.map(p=>p.color));
+    const color = palette.find(c=>!used.has(c)) || '#5bd6ff';
+    const name = isAI ? `AI ${G.players.length+1}` : `P${G.players.length+1}`;
+    // temporary shell player (final decks built on start)
+    G.players.push({
+      id: uid('tmp'), name, color, isAI,
+      gear: 1, engine: [], deck: [], discard: [], hand: [], play: [],
+      boostUsed:false, pos:{idx:0,lane:0}, lap:0, finished:false, removedFromTrack:false, finishRank:null,
+      planned:{gearTarget:1, payHeatForShift:false, cards:[], locked:false},
+      publicTopDiscard:null
+    });
+    renderAll();
+  }
+
+  function randomizeStartingGrid(){
+    const active = G.players;
+    // Shuffle order
+    const ids = active.map(p=>p.id);
+    for (let i=ids.length-1;i>0;i--){
+      const j = Math.floor(rng()*(i+1));
+      [ids[i], ids[j]] = [ids[j], ids[i]];
+    }
+    const ordered = ids.map(id => active.find(p=>p.id===id));
+
+    // Place one at a time filling spots in ascending order
+    const t = G.track;
+    const start = t.startGridStartIndex || 0;
+    let cursor = start;
+    let lane = 0;
+    for (const p of ordered){
+      p.pos.idx = cursor;
+      p.pos.lane = lane;
+      // advance lane then space
+      if (t.spotsPerSpace === 2){
+        lane = 1 - lane;
+        if (lane === 0) cursor = (cursor + 1) % t.spacesCount;
+      } else {
+        cursor = (cursor + 1) % t.spacesCount;
+      }
+    }
+    log('Starting grid randomized.');
+  }
+
+  function startRace(){
+    if (G.players.length < 1){ toast('Add at least 1 player.'); return; }
+    pushHistory('Start race');
+
+    // Build real player objects with decks
+    const heat = clamp(parseInt($('#cfgHeat').value||6,10), 0, 12);
+    const stress = clamp(parseInt($('#cfgStress').value||3,10), 0, 8);
+    const built=[];
+    for (const p0 of G.players){
+      const p = makePlayer({name:p0.name, color:p0.color, isAI:p0.isAI, heatInEngine:heat, stressInDeck:stress});
+      // position will be set by grid
+      built.push(p);
+    }
+    G.players = built;
+    G.startedCount = built.length;
+
+    // Place grid (random order by default)
+    randomizeStartingGrid();
+
+    G.phase = PHASE.PLANNING;
+    G.planningIdx = 0;
+    G.round = 1;
+    G.finishedOrder = [];
+
+    log(`Race started with ${G.players.length} car(s), ${G.track.lapsRequired} lap(s).`);
+    renderAll();
+    ensurePlanning();
+  }
+
+  function renderPlanningUI(p){
+    if (!p) return '<div class="muted">—</div>';
+
+    const playableCount = p.hand.filter(cardCanBePlayed).length;
+    const selected = new Set(p.planned.cards);
+
+    const handHtml = p.hand.map(c => {
+      const disabled = (!cardCanBePlayed(c)) || (selected.size >= p.gear && !selected.has(c.id));
+      const cls = ['card', disabled?'disabled':'', selected.has(c.id)?'selected':''].join(' ');
+      return `
+        <div class="${cls}" data-cid="${c.id}" title="${escapeHtml(fmtCard(c))}">
+          <div class="top"><div class="val">${c.type==='stress'?'+':(c.type==='heat'?'':(c.value??''))}</div><div class="tag">${c.type.toUpperCase()}</div></div>
+          <div class="btm">
+            <div class="sym ${c.type==='stress'?'plus':(c.type==='heat'?'heat':'')}">${c.type==='stress'?'+':(c.type==='heat'?'HEAT':'')}</div>
+            <div class="small muted">${c.type==='upgrade'?'UPG':''}</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    const shiftOptions = [1,2,3,4].map(g => {
+      const delta = g - p.gear;
+      const needsHeat = Math.abs(delta) === 2;
+      const label = needsHeat ? `${g} (pay 1 Heat)` : `${g}`;
+      return `<option value="${g}" ${p.gear===g?'selected':''}>${label}</option>`;
+    }).join('');
+
+    return `
+      <div class="note">
+        <div class="row" style="justify-content:space-between">
+          <div>
+            <strong>${escapeHtml(p.name)}</strong> <span class="tag2" style="border-color:rgba(91,214,255,.35)">Planning</span>
+            <div class="small muted">Choose gear (±1 free, ±2 costs 1 Heat from engine), then pick exactly ${p.gear} card(s) to play (no Heat cards).</div>
+          </div>
+          <button class="btn primary" id="btnLock">Lock In</button>
+        </div>
+        <div class="hr"></div>
+        <div class="grid3">
+          <div class="note" style="margin:0">
+            <div class="small muted">Engine Heat</div>
+            <div style="font-size:22px;font-weight:900">${p.engine.length}</div>
+          </div>
+          <div class="note" style="margin:0">
+            <div class="small muted">Deck / Discard</div>
+            <div style="font-size:14px"><span class="goodTxt">${p.deck.length}</span> / <span class="warn">${p.discard.length}</span></div>
+            <div class="small muted">Top discard: ${escapeHtml(fmtCard(p.publicTopDiscard))}</div>
+          </div>
+          <div class="note" style="margin:0">
+            <div class="small muted">Gear</div>
+            <div class="row" style="justify-content:space-between">
+              <select id="gearSel">${shiftOptions}</select>
+              <span class="tag2">Play ${p.gear} card(s)</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="hr"></div>
+        <div class="row" style="justify-content:space-between">
+          <div><strong>Hand</strong> <span class="small muted">(${p.hand.length} cards • playable ${playableCount})</span></div>
+          <div class="pill">Selected: <span id="selCount">${selected.size}</span> / ${p.gear}</div>
+        </div>
+        <div class="hand" id="hand">${handHtml}</div>
+      </div>
+
+      <div class="note small" style="margin-top:10px">
+        <strong>Tip:</strong> Stress cards (+) will flip random speed 1–4 (Basic) during reveal. Heat cards clog your hand and can’t be played.
+      </div>
+    `;
+  }
+
+  function hookPlanningUI(p){
+    if (!p) return;
+
+    // Gear selection
+    $('#gearSel').addEventListener('change', (e) => {
+      const g = parseInt(e.target.value,10);
+      pushHistory(`Shift gear (planning): ${p.name}`);
+      const res = applyShift(p, g);
+      if (!res.ok){ toast(res.reason); }
+      else if (res.paid){ log(`${p.name} shifts 2 gears and pays 1 Heat.`); }
+      renderAll();
+    });
+
+    // Card select
+    const hand = $('#hand');
+    hand.addEventListener('click', (e) => {
+      const cardEl = e.target.closest('.card');
+      if (!cardEl) return;
+      const cid = cardEl.getAttribute('data-cid');
+      const c = p.hand.find(x => x.id === cid);
+      if (!c) return;
+      if (!cardCanBePlayed(c)) return;
+
+      const sel = new Set(p.planned.cards);
+      if (sel.has(cid)) sel.delete(cid);
+      else {
+        if (sel.size >= p.gear) return;
+        sel.add(cid);
+      }
+      p.planned.cards = Array.from(sel);
+      $('#selCount').textContent = String(sel.size);
+      renderAll();
+    });
+
+    // Lock
+    $('#btnLock').addEventListener('click', () => nextStep());
+  }
+
+  function renderResolutionUI(p){
+    if (!p) return '<div class="muted">—</div>';
+
+    const step = G.activeStep;
+
+    const summary = `
+      <div class="grid3">
+        <div class="note" style="margin:0">
+          <div class="small muted">Position</div>
+          <div style="font-size:16px"><strong>Space ${p.pos.idx}</strong> ${p.pos.lane===0?'(Race Line)':'(Outside)'}</div>
+          <div class="small muted">Lap ${p.lap}/${G.track.lapsRequired}</div>
+        </div>
+        <div class="note" style="margin:0">
+          <div class="small muted">Gear</div>
+          <div style="font-size:22px;font-weight:900">${p.gear}</div>
+          <div class="small muted">Cooldown cap this turn: ${cooldownCapacity(p)}</div>
+        </div>
+        <div class="note" style="margin:0">
+          <div class="small muted">Engine Heat</div>
+          <div style="font-size:22px;font-weight:900">${p.engine.length}</div>
+          <div class="small muted">Boost used: ${p.boostUsed?'Yes':'No'}</div>
+        </div>
+      </div>
+    `;
+
+    const playArea = p.play.map(c => `<span class="tag2">${escapeHtml(fmtCard(c))}</span>`).join(' ');
+
+    const handHtml = p.hand.map(c => {
+      const cls = ['card', (G._discardPick?.has(c.id)?'selected':'')].join(' ');
+      const disabled = (step === STEP.DISCARD) ? isNonDiscardable(c) : !cardCanBePlayed(c);
+      return `
+        <div class="${cls} ${disabled?'disabled':''}" data-cid="${c.id}" title="${escapeHtml(fmtCard(c))}">
+          <div class="top"><div class="val">${c.type==='stress'?'+':(c.type==='heat'?'':(c.value??''))}</div><div class="tag">${c.type.toUpperCase()}</div></div>
+          <div class="btm">
+            <div class="sym ${c.type==='stress'?'plus':(c.type==='heat'?'heat':'')}">${c.type==='stress'?'+':(c.type==='heat'?'HEAT':'')}</div>
+            <div class="small muted">${c.type==='upgrade'?'UPG':''}</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    // Step-specific controls
+    let controls = '';
+
+    if (step === STEP.REVEAL_MOVE){
+      controls = `
+        <div class="note">
+          <div class="row" style="justify-content:space-between">
+            <div>
+              <strong>Step 3: Reveal & Move</strong>
+              <div class="small muted">Reveal played cards. Stress (+) flips until Basic 1–4 appears (non-basic flipped cards are discarded). Then move exactly total Speed.</div>
+            </div>
+            <button class="btn primary" id="btnNext">Reveal & Move</button>
+          </div>
+        </div>
+      `;
+    }
+
+    if (step === STEP.ADRENALINE){
+      const eligible = G.adrenaline.eligible;
+      controls = `
+        <div class="note">
+          <div class="row" style="justify-content:space-between">
+            <div>
+              <strong>Step 4: Adrenaline</strong>
+              <div class="small muted">Only if you are the last car to move this round (or one of last two with 5+ cars). Choose optional bonuses for this turn only.</div>
+            </div>
+            <button class="btn primary" id="btnNext">Continue</button>
+          </div>
+          <div class="hr"></div>
+          ${eligible ? `
+            <div class="row">
+              <label class="row small"><input type="checkbox" id="adrenMove" ${G.adrenaline.move?'checked':''} /> +1 Speed & Move 1</label>
+              <label class="row small"><input type="checkbox" id="adrenCool" ${G.adrenaline.cooldownBonus?'checked':''} /> +1 Cooldown</label>
+              <span class="pill">Eligible</span>
+            </div>
+          ` : `
+            <div class="row"><span class="pill">Not eligible</span></div>
+          `}
+        </div>
+      `;
+    }
+
+    if (step === STEP.REACT){
+      const cap = cooldownCapacity(p);
+      const heatInHand = p.hand.filter(c=>c.type==='heat').length;
+      const canBoost = (!p.boostUsed && p.engine.length>0);
+      controls = `
+        <div class="note">
+          <div class="row" style="justify-content:space-between">
+            <div>
+              <strong>Step 5: React</strong>
+              <div class="small muted">Activate symbols in any order: Cooldown (from gear, plus Adrenaline), and Boost (pay 1 Heat from engine) once per turn.</div>
+            </div>
+            <button class="btn primary" id="btnNext">Finish React</button>
+          </div>
+          <div class="hr"></div>
+          <div class="grid2">
+            <div class="note" style="margin:0">
+              <div class="row" style="justify-content:space-between">
+                <div>
+                  <strong>Cooldown</strong>
+                  <div class="small muted">Cap: ${cap} • Heat in hand: ${heatInHand}</div>
+                </div>
+                <button class="btn small" id="btnCooldown" ${cap===0||heatInHand===0?'disabled':''}>Use Cooldown</button>
+              </div>
+              <div class="small muted">Returns Heat from hand → engine.</div>
+            </div>
+            <div class="note" style="margin:0">
+              <div class="row" style="justify-content:space-between">
+                <div>
+                  <strong>Boost</strong>
+                  <div class="small muted">Pay 1 Heat → flip until Basic, move that many.</div>
+                </div>
+                <button class="btn small" id="btnBoost" ${!canBoost?'disabled':''}>Boost</button>
+              </div>
+              <div class="small muted">Boost increases corner speed value.</div>
+            </div>
+          </div>
+          <div class="hr"></div>
+          <div class="small muted">Current corner-speed value: <strong>${G.speedForCorner}</strong>. Corners crossed this turn: ${(G.cornerCrossed||[]).map(c=>`@${c.cornerLineIndex}≤${c.speedLimit}`).join(', ')||'none'}.</div>
+          <div class="small muted">If you crossed final finish this turn, Slipstream is not allowed.</div>
+        </div>
+      `;
+    }
+
+    if (step === STEP.SLIPSTREAM){
+      const eligible = slipEligible(p);
+      controls = `
+        <div class="note">
+          <div class="row" style="justify-content:space-between">
+            <div>
+              <strong>Step 6: Slipstream</strong>
+              <div class="small muted">Optional if you are next to or behind another car. Move +2 spaces (does NOT increase corner speed). Cannot cross finish line.</div>
+            </div>
+            <button class="btn primary" id="btnNext">Continue</button>
+          </div>
+          <div class="hr"></div>
+          <div class="row">
+            ${eligible ? `
+              <button class="btn good" id="btnSlip">Slipstream +2</button>
+              <button class="btn" id="btnNoSlip">Skip</button>
+              <span class="pill">Eligible</span>
+            ` : `
+              <span class="pill">Not eligible</span>
+            `}
+          </div>
+        </div>
+      `;
+    }
+
+    if (step === STEP.CHECK_CORNER){
+      controls = `
+        <div class="note">
+          <div class="row" style="justify-content:space-between">
+            <div>
+              <strong>Step 7: Check Corner</strong>
+              <div class="small muted">If you crossed a corner line, compare total Speed value (including Boost and Adrenaline +1, excluding Slipstream). Pay Heat or spin out.</div>
+            </div>
+            <button class="btn primary" id="btnNext">Resolve Corner</button>
+          </div>
+          <div class="hr"></div>
+          <div class="small muted">Corner-speed value: <strong>${G.speedForCorner}</strong>. Crossed: ${(G.cornerCrossed||[]).map(c=>`@${c.cornerLineIndex}≤${c.speedLimit}`).join(', ')||'none'}.</div>
+        </div>
+      `;
+    }
+
+    if (step === STEP.DISCARD){
+      controls = `
+        <div class="note">
+          <div class="row" style="justify-content:space-between">
+            <div>
+              <strong>Step 8: Discard (optional)</strong>
+              <div class="small muted">You may discard any number of cards from hand, but you can never choose to discard Heat or Stress cards.</div>
+            </div>
+            <div class="row">
+              <button class="btn" id="btnSkipDiscard">Skip</button>
+              <button class="btn good" id="btnConfirmDiscard">Confirm Discard</button>
+            </div>
+          </div>
+          <div class="small muted" style="margin-top:8px">Click cards to toggle discard selection (Heat/Stress disabled).</div>
+        </div>
+      `;
+    }
+
+    if (step === STEP.REPLENISH){
+      controls = `
+        <div class="note">
+          <div class="row" style="justify-content:space-between">
+            <div>
+              <strong>Step 9: Replenish Hand</strong>
+              <div class="small muted">Move play area to discard, then draw back up to 7. If deck runs out, shuffle discard into new deck (play area is not shuffled in until discarded).</div>
+            </div>
+            <button class="btn primary" id="btnNext">Replenish</button>
+          </div>
+        </div>
+      `;
+    }
+
+    if (step === STEP.DONE){
+      controls = `
+        <div class="note">
+          <div class="row" style="justify-content:space-between">
+            <div>
+              <strong>Turn Complete</strong>
+              <div class="small muted">Proceed to next car in resolution order.</div>
+            </div>
+            <button class="btn primary" id="btnNext">Next Car</button>
+          </div>
+        </div>
+      `;
+    }
+
+    const playedInfo = p.play.length ? `
+      <div class="note small" style="margin-top:10px">
+        <strong>Play Area:</strong> ${playArea || '—'}
+      </div>
+    ` : '';
+
+    const finishBanner = p.finished ? `
+      <div class="note" style="border-color:rgba(125,255,155,.35);background:rgba(125,255,155,.08)">
+        <strong class="goodTxt">Finished!</strong> Rank so far: ${p.finishRank}
+      </div>
+    ` : '';
+
+    return `
+      ${finishBanner}
+      ${summary}
+      ${controls}
+      ${playedInfo}
+
+      <div class="hr"></div>
+
+      <div class="row" style="justify-content:space-between">
+        <div><strong>Hand</strong> <span class="small muted">(${p.hand.length})</span></div>
+        <div class="small muted">Deck ${p.deck.length} • Discard ${p.discard.length} • Top discard: ${escapeHtml(fmtCard(p.publicTopDiscard))}</div>
+      </div>
+      <div class="hand" id="hand">${handHtml}</div>
+
+      <div class="note small" style="margin-top:10px">
+        <strong>Resolution order:</strong> ${sortedCars(true,false).map(x => x.id===p.id?`<span class="tag2" style="border-color:rgba(91,214,255,.45)">${escapeHtml(x.name)}</span>`:`<span class="tag2">${escapeHtml(x.name)}</span>`).join(' ')}
+      </div>
+    `;
+  }
+
+  function hookResolutionUI(p){
+    if (!p) return;
+
+    const nextBtn = $('#btnNext');
+    if (nextBtn) nextBtn.addEventListener('click', () => nextStep());
+
+    // Adrenaline toggles
+    if (G.activeStep === STEP.ADRENALINE && G.adrenaline.eligible && !p.isAI){
+      const m = $('#adrenMove');
+      const c = $('#adrenCool');
+      if (m) m.addEventListener('change', () => { G.adrenaline.move = !!m.checked; });
+      if (c) c.addEventListener('change', () => { G.adrenaline.cooldownBonus = c.checked ? 1 : 0; });
+    }
+
+    // React buttons
+    if (G.activeStep === STEP.REACT){
+      const cd = $('#btnCooldown');
+      const bs = $('#btnBoost');
+      if (cd) cd.addEventListener('click', () => {
+        pushHistory(`Cooldown: ${p.name}`);
+        doCooldown(p, cooldownCapacity(p));
+        renderAll();
+      });
+      if (bs) bs.addEventListener('click', () => {
+        pushHistory(`Boost: ${p.name}`);
+        const res = doBoost(p);
+        if (!res.ok) toast(res.reason);
+        renderAll();
+      });
+      // React pending ends only when user clicks Finish React
+      G._reactPending = false;
+      // If AI, auto is handled elsewhere
+    }
+
+    // Slipstream buttons
+    if (G.activeStep === STEP.SLIPSTREAM){
+      const slip = $('#btnSlip');
+      const noslip = $('#btnNoSlip');
+      if (slip) slip.addEventListener('click', () => {
+        pushHistory(`Slipstream: ${p.name}`);
+        doSlipstream(p, true);
+        G._slipPending = false;
+        renderAll();
+      });
+      if (noslip) noslip.addEventListener('click', () => {
+        pushHistory(`Skip slipstream: ${p.name}`);
+        doSlipstream(p, false);
+        G._slipPending = false;
+        renderAll();
+      });
+      // if not eligible, auto clear
+      if (!slipEligible(p)) G._slipPending = false;
+    }
+
+    // Discard interactions
+    if (G.activeStep === STEP.DISCARD){
+      if (!G._discardPick) G._discardPick = new Set();
+      const hand = $('#hand');
+      hand.addEventListener('click', (e) => {
+        const cardEl = e.target.closest('.card');
+        if (!cardEl) return;
+        const cid = cardEl.getAttribute('data-cid');
+        const c = p.hand.find(x => x.id === cid);
+        if (!c || isNonDiscardable(c)) return;
+        if (G._discardPick.has(cid)) G._discardPick.delete(cid);
+        else G._discardPick.add(cid);
+        renderAll();
+      });
+
+      $('#btnConfirmDiscard').addEventListener('click', () => {
+        pushHistory(`Discard chosen: ${p.name}`);
+        confirmDiscard(p, Array.from(G._discardPick));
+        G._discardPick = new Set();
+        renderAll();
+      });
+      $('#btnSkipDiscard').addEventListener('click', () => {
+        pushHistory(`Skip discard: ${p.name}`);
+        confirmDiscard(p, []);
+        G._discardPick = new Set();
+        renderAll();
+      });
+
+      G._discardPending = true;
+    }
+
+    // Let AI auto-advance when appropriate
+    autoResolveAIIfNeeded();
+  }
+
+  function renderFinishedUI(){
+    const order = G.finishedOrder.map((id, idx) => {
+      const p = G.players.find(x => x.id === id);
+      return `<li><strong>#${idx+1}</strong> ${escapeHtml(p?.name||'?')}</li>`;
+    }).join('');
+
+    const standings = `
+      <div class="note">
+        <strong>Hall of Fame</strong>
+        <ol>${order || '<li class="muted">—</li>'}</ol>
+      </div>
+    `;
+
+    return `
+      ${standings}
+      <div class="row">
+        <button class="btn primary" id="btnRestart">Restart (keep track)</button>
+        <button class="btn" id="btnBackSetup">Back to Setup</button>
+      </div>
+      <div class="note small" style="margin-top:10px">
+        <div><strong>Save</strong> exports full game state (including seed + RNG call count), so loading will reproduce outcomes deterministically.</div>
+      </div>
+    `;
+  }
+
+  function hookFinishedUI(){
+    $('#btnRestart').addEventListener('click', () => {
+      pushHistory('Restart');
+      // Restart with same players & track
+      const cfgPlayers = G.players.map(p => ({name:p.name, color:p.color, isAI:p.isAI}));
+      const seed = G.seed;
+      const track = deepClone(G.track);
+      newGame();
+      G.seed = seed;
+      G.track = track;
+      rng = makeRng(G.seed, 0);
+      // Add shells
+      G.players = cfgPlayers.map(x => ({
+        id: uid('tmp'), name:x.name, color:x.color, isAI:x.isAI,
+        gear:1, engine:[], deck:[], discard:[], hand:[], play:[],
+        boostUsed:false, pos:{idx:0,lane:0}, lap:0, finished:false, removedFromTrack:false, finishRank:null,
+        planned:{gearTarget:1, payHeatForShift:false, cards:[], locked:false},
+        publicTopDiscard:null
+      }));
+      renderAll();
+    });
+    $('#btnBackSetup').addEventListener('click', () => {
+      pushHistory('Back to setup');
+      // Convert to setup shells
+      const cfgPlayers = G.players.map(p => ({name:p.name, color:p.color, isAI:p.isAI}));
+      const seed = G.seed;
+      const track = deepClone(G.track);
+      newGame();
+      G.seed = seed;
+      G.track = track;
+      rng = makeRng(G.seed, 0);
+      G.players = cfgPlayers.map(x => ({
+        id: uid('tmp'), name:x.name, color:x.color, isAI:x.isAI,
+        gear:1, engine:[], deck:[], discard:[], hand:[], play:[],
+        boostUsed:false, pos:{idx:0,lane:0}, lap:0, finished:false, removedFromTrack:false, finishRank:null,
+        planned:{gearTarget:1, payHeatForShift:false, cards:[], locked:false},
+        publicTopDiscard:null
+      }));
+      renderAll();
+    });
+  }
+
+  function renderAll(){
+    renderTrack();
+    renderRight();
+    rebuildLog();
+    updateUndoBtn();
+    maybeAutoScroll();
+  }
+
+  function maybeAutoScroll(){
+    if ($('#autoScroll').value !== 'on') return;
+    // Center on active player (planning/resolution)
+    let p=null;
+    if (G.phase === PHASE.PLANNING) p = G.players[G.planningIdx];
+    if (G.phase === PHASE.RESOLUTION) p = activePlayer();
+    if (!p) return;
+    centerOnSpace(p.pos.idx);
+  }
+
+  function centerOnSpace(idx){
+    const view = $('#trackView');
+    const space = $(`#trackGrid .space:nth-child(${idx+1})`);
+    if (!space) return;
+    const rect = space.getBoundingClientRect();
+    const vrect = view.getBoundingClientRect();
+    const left = space.offsetLeft - (vrect.width/2) + (rect.width/2);
+    view.scrollTo({left, behavior:'smooth'});
+  }
+
+  /***********************
+   * Track Editor modal
+   ***********************/
+  function openTrackEditor(){
+    const t = deepClone(G.track);
+    openModal('Track Editor', `
+      <div class="note">
+        <strong>Schema</strong>
+        <div class="small muted">Edit JSON then Apply. Values are validated. This simulator uses a linear circular track with a finish index and corner lines.</div>
+        <div class="hr"></div>
+        <textarea id="trkJson" class="kbd">${escapeHtml(JSON.stringify(t, null, 2))}</textarea>
+        <div class="row" style="margin-top:10px">
+          <button class="btn primary" id="btnApplyTrack">Apply</button>
+          <button class="btn" id="btnExportTrack">Export JSON</button>
+          <span class="small muted">Tip: corners are {cornerLineIndex, speedLimit}</span>
+        </div>
+      </div>
+      <div class="note small" style="margin-top:10px">
+        <strong>Note:</strong> If you apply a new spacesCount mid-race, cars may be remapped mod N.
+      </div>
+    `);
+
+    $('#btnApplyTrack').addEventListener('click', () => {
+      const raw = $('#trkJson').value;
+      try{
+        const obj = JSON.parse(raw);
+        pushHistory('Apply track editor');
+        setTrack(obj, {persist:true, remapPositions:true});
+        closeModal();
+        renderAll();
+      } catch(e){
+        toast('Invalid JSON: ' + e.message);
+      }
+    });
+
+    $('#btnExportTrack').addEventListener('click', () => {
+      const raw = $('#trkJson').value;
+      try{
+        const obj = JSON.parse(raw);
+        const nt = normalizeTrack(obj);
+        downloadText('track.json', JSON.stringify(nt, null, 2), 'application/json');
+      } catch(e){
+        toast('Invalid JSON.');
+      }
+    });
+  }
+
+  /***********************
+   * Help modal
+   ***********************/
+  function openHelp(){
+    openModal('Help', `
+      <div class="note">
+        <strong>What this is</strong>
+        <div class="small muted">An offline, single-file web simulator implementing the <em>core rules</em> of Heat: Pedal to the Metal (no official art/assets). Hotseat play with optional simple AI.</div>
+      </div>
+      <div class="hr"></div>
+      <div class="note">
+        <strong>Flow per round</strong>
+        <ol class="small muted">
+          <li><strong>Planning:</strong> each player shifts gear (±1 free, ±2 pay 1 Heat from engine) and selects exactly <strong>gear</strong> cards (no Heat).</li>
+          <li><strong>Resolution (front to back):</strong> Reveal & Move → Adrenaline (last car(s)) → React (Cooldown/Boost) → Slipstream → Check Corner → Discard → Replenish.</li>
+        </ol>
+      </div>
+      <div class="note small" style="margin-top:10px">
+        <strong>Symbols</strong>
+        <ul class="small muted">
+          <li><strong>Stress (+):</strong> when played, flip until a Basic card (1–4); non-basic flipped cards are discarded.</li>
+          <li><strong>Cooldown:</strong> in Gear 1 = 3, Gear 2 = 1 (plus Adrenaline +1). Move Heat from hand → engine.</li>
+          <li><strong>Boost:</strong> pay 1 Heat from engine; flip until Basic; move that many; increases corner speed value; once per turn.</li>
+          <li><strong>Slipstream:</strong> optional if next to or behind a car; move +2; doesn’t increase corner speed; cannot cross finish.</li>
+        </ul>
+      </div>
+      <div class="note small" style="margin-top:10px">
+        <strong>Save/Load</strong> keeps full state + seed + RNG call count for deterministic playback.
+      </div>
+    `);
+  }
+
+  /***********************
+   * Modal helpers
+   ***********************/
+  function openModal(title, bodyHtml, sub=null){
+    $('#modalTitle').textContent = title;
+    const subEl = $('#modalSub');
+    if (sub){ subEl.style.display='inline-block'; subEl.textContent=sub; }
+    else subEl.style.display='none';
+    $('#modalBody').innerHTML = bodyHtml;
+    $('#modalBack').classList.add('show');
+    $('#modalBack').setAttribute('aria-hidden','false');
+  }
+  function closeModal(){
+    $('#modalBack').classList.remove('show');
+    $('#modalBack').setAttribute('aria-hidden','true');
+    $('#modalBody').innerHTML = '';
+  }
+
+  /***********************
+   * Toast
+   ***********************/
+  let toastTimer=null;
+  function toast(msg){
+    clearTimeout(toastTimer);
+    const pill = $('#phasePill');
+    const old = pill.textContent;
+    pill.textContent = msg;
+    pill.style.borderColor = 'rgba(255,206,91,.45)';
+    pill.style.background = 'rgba(255,206,91,.10)';
+    toastTimer = setTimeout(() => {
+      pill.style.borderColor='';
+      pill.style.background='';
+      pill.textContent = old;
+    }, 1800);
+  }
+
+  /***********************
+   * Save/Load
+   ***********************/
+  function saveGame(){
+    const payload = {
+      type: 'heat-core-sim-save',
+      savedAt: new Date().toISOString(),
+      game: G
+    };
+    downloadText('heat_core_sim_save.json', JSON.stringify(payload, null, 2), 'application/json');
+  }
+
+  function loadGameFromFile(file){
+    const reader = new FileReader();
+    reader.onload = () => {
+      try{
+        const obj = JSON.parse(reader.result);
+        if (obj.type !== 'heat-core-sim-save') throw new Error('Not a Heat core sim save file.');
+        pushHistory('Load game');
+        G = obj.game;
+        // Normalize + persist track just in case
+        setTrack(G.track, {persist:true, remapPositions:false});
+        rng = makeRng(G.seed, G.rngCalls||0);
+        renderAll();
+        log('Game loaded.');
+      } catch(e){
+        toast('Load failed: ' + e.message);
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  /***********************
+   * Header hooks
+   ***********************/
+  function hookHeader(){
+    $('#btnUndo').addEventListener('click', undo);
+    $('#btnSave').addEventListener('click', () => { pushHistory('Save'); saveGame(); });
+    $('#fileLoad').addEventListener('change', (e) => {
+      const f = e.target.files[0];
+      if (f) loadGameFromFile(f);
+      e.target.value = '';
+    });
+    $('#btnNew').addEventListener('click', () => {
+      if (!confirm('Start a new game? Current state will be lost unless you saved.')) return;
+      newGame();
+    });
+    $('#btnTrackEditor').addEventListener('click', openTrackEditor);
+    $('#btnHelp').addEventListener('click', openHelp);
+    $('#modalClose').addEventListener('click', closeModal);
+    $('#modalBack').addEventListener('click', (e) => { if (e.target === $('#modalBack')) closeModal(); });
+    $('#btnClearLog').addEventListener('click', () => { pushHistory('Clear log'); G.log=[]; rebuildLog(); });
+    $('#zoom').addEventListener('input', () => renderTrack());
+    $('#btnCenter').addEventListener('click', () => {
+      let p=null;
+      if (G.phase === PHASE.PLANNING) p = G.players[G.planningIdx];
+      if (G.phase === PHASE.RESOLUTION) p = activePlayer();
+      if (p) centerOnSpace(p.pos.idx);
+    });
+  }
+
+  /***********************
+   * Init
+   ***********************/
+  hookHeader();
+  newGame();
+
+})();
+</script>
+</body>
+</html>
