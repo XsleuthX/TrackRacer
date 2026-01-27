@@ -424,6 +424,7 @@
    * Default track preset (functional, original)
    ***********************/
   const DEFAULT_TRACK = {
+    id: "demo",
     name: "Desert Sprint (demo)",
     spacesCount: 60,
     spotsPerSpace: 2,
@@ -434,8 +435,56 @@
       {cornerLineIndex: 28, speedLimit: 6},
       {cornerLineIndex: 45, speedLimit: 8}
     ],
-    startGridStartIndex: 2
+    startGridStartIndex: 2,
+
+    // Map View polyline (relative points 0..1). Original, not copied from any official board.
+    mapPoly: [
+      [0.14,0.80],[0.82,0.80],[0.92,0.72],[0.92,0.22],[0.72,0.18],[0.54,0.26],
+      [0.58,0.52],[0.44,0.62],[0.30,0.52],[0.36,0.34],[0.24,0.22],[0.12,0.30],[0.10,0.52],[0.14,0.80]
+    ],
+    mapTheme: "desert"
   };
+
+  // Track presets (schematic, no official art). Names match the base game's 4 official tracks.
+  // Use Track Editor to match your physical board exactly.
+  const TRACK_LIBRARY = [
+    { id:"demo", name:"Demo — Desert Sprint", track: DEFAULT_TRACK },
+
+    { id:"usa", name:"USA (schematic)", track: {
+      id:"usa", name:"USA (schematic)",
+      spacesCount: 64, spotsPerSpace: 2, finishIndex: 0, lapsRequired: 2, startGridStartIndex: 2,
+      corners: [{cornerLineIndex: 10, speedLimit: 8},{cornerLineIndex: 24, speedLimit: 6},{cornerLineIndex: 40, speedLimit: 7},{cornerLineIndex: 54, speedLimit: 9}],
+      mapPoly: [[0.12,0.76],[0.86,0.76],[0.92,0.68],[0.92,0.30],[0.86,0.22],[0.24,0.22],[0.18,0.30],[0.18,0.54],[0.40,0.58],[0.46,0.44],[0.30,0.38],[0.12,0.44],[0.12,0.76]],
+      mapTheme:"desert"
+    }},
+
+    { id:"france", name:"France (schematic)", track: {
+      id:"france", name:"France (schematic)",
+      spacesCount: 66, spotsPerSpace: 2, finishIndex: 0, lapsRequired: 2, startGridStartIndex: 2,
+      corners: [{cornerLineIndex: 14, speedLimit: 7},{cornerLineIndex: 30, speedLimit: 5},{cornerLineIndex: 46, speedLimit: 8},{cornerLineIndex: 58, speedLimit: 7}],
+      mapPoly: [[0.16,0.78],[0.80,0.78],[0.88,0.66],[0.78,0.50],[0.88,0.34],[0.80,0.22],[0.28,0.22],[0.18,0.34],[0.26,0.48],[0.14,0.60],[0.16,0.78]],
+      mapTheme:"euro"
+    }},
+
+    { id:"italy", name:"Italy (schematic)", track: {
+      id:"italy", name:"Italy (schematic)",
+      spacesCount: 68, spotsPerSpace: 2, finishIndex: 0, lapsRequired: 2, startGridStartIndex: 2,
+      corners: [{cornerLineIndex: 12, speedLimit: 8},{cornerLineIndex: 26, speedLimit: 6},{cornerLineIndex: 38, speedLimit: 6},{cornerLineIndex: 52, speedLimit: 9}],
+      mapPoly: [[0.14,0.74],[0.86,0.74],[0.92,0.64],[0.78,0.50],[0.92,0.36],[0.84,0.24],[0.52,0.24],[0.44,0.34],[0.36,0.24],[0.18,0.24],[0.12,0.36],[0.22,0.50],[0.12,0.64],[0.14,0.74]],
+      mapTheme:"euro"
+    }},
+
+    { id:"gb", name:"Great Britain (schematic)", track: {
+      id:"gb", name:"Great Britain (schematic)",
+      spacesCount: 70, spotsPerSpace: 2, finishIndex: 0, lapsRequired: 2, startGridStartIndex: 2,
+      corners: [{cornerLineIndex: 16, speedLimit: 7},{cornerLineIndex: 32, speedLimit: 7},{cornerLineIndex: 44, speedLimit: 5},{cornerLineIndex: 60, speedLimit: 8}],
+      mapPoly: [[0.14,0.76],[0.86,0.76],[0.92,0.66],[0.82,0.56],[0.92,0.46],[0.82,0.36],[0.92,0.26],[0.76,0.20],[0.22,0.20],[0.10,0.34],[0.24,0.44],[0.12,0.54],[0.24,0.64],[0.14,0.76]],
+      mapTheme:"classic"
+    }},
+
+    { id:"custom", name:"Custom (your edits)", track: null }
+  ];
+
 
   function normalizeTrack(t){
     const out = deepClone(t);
@@ -454,16 +503,43 @@
       if (seen.has(c.cornerLineIndex)) return false;
       seen.add(c.cornerLineIndex); return true;
     });
+    // Optional Map View layout + theme (purely cosmetic)
+    if (Array.isArray(out.mapPoly)){
+      out.mapPoly = out.mapPoly
+        .filter(p => Array.isArray(p) && p.length>=2)
+        .map(p => [clamp(+p[0],0,1), clamp(+p[1],0,1)]);
+      if (out.mapPoly.length < 4) out.mapPoly = null;
+    } else {
+      out.mapPoly = null;
+    }
+    out.mapTheme = (out.mapTheme || out.mapTheme===0) ? String(out.mapTheme) : null;
+
     return out;
   }
 
 
-  // Track persistence (so Track Editor changes don't "revert" on re-render/new game)
-  const TRACK_STORAGE_KEY = 'heat.customTrack.v1';
+  
+  // Track selection + persistence:
+  // - Selecting a preset stores its id
+  // - Track Editor edits are stored as "custom"
+  const TRACK_SELECTED_KEY = 'heat.trackPresetId.v1';
+  const TRACK_CUSTOM_KEY   = 'heat.customTrack.v2';
 
-  function getInitialTrack(){
+  function getInitialTrackPresetId(){
     try{
-      const raw = localStorage.getItem(TRACK_STORAGE_KEY);
+      return localStorage.getItem(TRACK_SELECTED_KEY) || 'demo';
+    }catch(e){
+      return 'demo';
+    }
+  }
+
+  function getPresetById(id){
+    return (TRACK_LIBRARY||[]).find(p => p.id === id) || null;
+  }
+
+  function loadCustomTrack(){
+    try{
+      const raw = localStorage.getItem(TRACK_CUSTOM_KEY);
       if (!raw) return normalizeTrack(DEFAULT_TRACK);
       return normalizeTrack(JSON.parse(raw));
     }catch(e){
@@ -471,12 +547,33 @@
     }
   }
 
-  function setTrack(nextTrack, {persist=true, remapPositions=true} = {}){
+  function getInitialTrack(){
+    const pid = getInitialTrackPresetId();
+    if (pid === 'custom') return loadCustomTrack();
+    const preset = getPresetById(pid);
+    if (preset && preset.track) return normalizeTrack(preset.track);
+    return normalizeTrack(DEFAULT_TRACK);
+  }
+
+  function setTrack(nextTrack, {persist=true, remapPositions=true, presetId=null} = {}){
     const nt = normalizeTrack(nextTrack);
     G.track = nt;
+
+    // Persist selected preset id + custom track json (if applicable)
     if (persist){
-      try{ localStorage.setItem(TRACK_STORAGE_KEY, JSON.stringify(nt)); }catch(e){}
+      try{
+        const pid = presetId || G.trackPresetId || 'custom';
+        localStorage.setItem(TRACK_SELECTED_KEY, pid);
+        if (pid === 'custom'){
+          localStorage.setItem(TRACK_CUSTOM_KEY, JSON.stringify(nt));
+        }
+      }catch(e){}
     }
+
+    // Remember current selection in-state
+    if (presetId) G.trackPresetId = presetId;
+    if (!G.trackPresetId) G.trackPresetId = 'custom';
+
     if (remapPositions && Array.isArray(G.players)){
       const N = nt.spacesCount;
       for (const p of G.players){
@@ -485,7 +582,7 @@
         p.pos.lane = (nt.spotsPerSpace===1) ? 0 : clamp(p.pos.lane,0,1);
       }
     }
-    
+
     // Changing track invalidates module token placement & draft state.
     G.weatherRoad = null;
     G.draft = null;
@@ -493,7 +590,7 @@
   }
 
 
-  /***********************
+/***********************
    * Game State
    ***********************/
   const PHASE = {
@@ -560,6 +657,7 @@
       seed,
       rngCalls: 0,
       phase: PHASE.SETUP,
+      trackPresetId: getInitialTrackPresetId(),
       track: getInitialTrack(),
       players: [],
       startedCount: 0,
@@ -2050,16 +2148,22 @@ function autoResolveUpgradeActionsAI(p){
         tokEl.style.display = '';
         const w = G.weatherRoad.weatherToken;
         const corners = (G.track.corners||[]).slice().sort((a,b)=>a.cornerLineIndex-b.cornerLineIndex);
-        const sectorLines = corners.map(c=>{
+        const sectorEntries = corners.map(c=>{
           const st = (G.weatherRoad.roadSector||{})[c.cornerLineIndex];
-          if (!st) return `S${c.cornerLineIndex}→ … : (none)`;
-          return `After corner @${c.cornerLineIndex}: ${st.label}`;
-        }).join('<br>');
-        const cornerLines = corners.map(c=>{
+          if (!st) return null;
+          let lbl = st.label;
+          if (st.key === 'weather' && G.weatherRoad.weatherToken && G.weatherRoad.weatherToken.sectorLabel){
+            lbl = `${st.label} → ${G.weatherRoad.weatherToken.sectorLabel}`;
+          }
+          return `After corner @${c.cornerLineIndex}: ${lbl}`;
+        }).filter(Boolean);
+        const sectorLines = sectorEntries.join('<br>');
+        const cornerEntries = corners.map(c=>{
           const rt = (G.weatherRoad.roadCorner||{})[c.cornerLineIndex];
-          if (!rt) return `Corner @${c.cornerLineIndex}: (none)`;
+          if (!rt) return null;
           return `Corner @${c.cornerLineIndex}: ${rt.label}`;
-        }).join('<br>');
+        }).filter(Boolean);
+        const cornerLines = cornerEntries.join('<br>');
         tokEl.innerHTML = `
           <div class="row" style="gap:18px">
             <div style="min-width:170px">
@@ -2092,6 +2196,14 @@ function autoResolveUpgradeActionsAI(p){
       if (G.weatherRoad){
         const rt = (G.weatherRoad.roadCorner||{})[i];
         if (rt) badges.push(`<span class="badge road">${escapeHtml(rt.label)}</span>`);
+        // also show if THIS corner has a sector token assigned (token applies to sector after this corner)
+        const stHere = (G.weatherRoad.roadSector||{})[i];
+        if (stHere){
+          badges.push(`<span class="badge sector">Sector: ${escapeHtml(stHere.label)}</span>`);
+          if (stHere.key === 'weather' && G.weatherRoad.weatherToken && G.weatherRoad.weatherToken.sectorLabel){
+            badges.push(`<span class="badge sector">${escapeHtml(G.weatherRoad.weatherToken.sectorLabel)}</span>`);
+          }
+        }
         // show sector token at the first space after a corner line
         const srcCorner = (t.corners||[]).find(c=>stepForward(c.cornerLineIndex)===i);
         if (srcCorner){
@@ -2164,12 +2276,11 @@ function autoResolveUpgradeActionsAI(p){
     ctx.setTransform(dpr,0,0,dpr,0,0);
     ctx.clearRect(0,0,W,H);
 
-    // ---- Layout: a stylized "desert circuit" inspired by the reference image (original artwork, not copied) ----
-    // Polyline points in relative coordinates (0..1), then sampled into N spaces.
-    const poly = [
+    // ---- Layout: Map View polyline (original, schematic) ----
+    const poly = (Array.isArray(t.mapPoly) && t.mapPoly.length>=4) ? t.mapPoly : (DEFAULT_TRACK.mapPoly || [
       [0.14,0.80],[0.82,0.80],[0.92,0.72],[0.92,0.22],[0.72,0.18],[0.54,0.26],
       [0.58,0.52],[0.44,0.62],[0.30,0.52],[0.36,0.34],[0.24,0.22],[0.12,0.30],[0.10,0.52],[0.14,0.80]
-    ];
+    ]);
     const N = t.spacesCount;
 
     function dist(a,b){ const dx=a[0]-b[0], dy=a[1]-b[1]; return Math.hypot(dx,dy); }
@@ -2316,6 +2427,9 @@ function autoResolveUpgradeActionsAI(p){
           const sx = s2.x + s2.nx*40;
           const sy = s2.y + s2.ny*40;
           drawBadge(sx,sy,st.label,'sector');
+          if (st.key === 'weather' && G.weatherRoad.weatherToken && G.weatherRoad.weatherToken.sectorLabel){
+            drawBadge(sx,sy+26,G.weatherRoad.weatherToken.sectorLabel,'sector');
+          }
         }
       }
     }
@@ -2323,7 +2437,7 @@ function autoResolveUpgradeActionsAI(p){
     // weather badge
     if (G.weatherRoad){
       const w = G.weatherRoad.weatherToken;
-      drawBadge(W*0.10,H*0.12,`Weather: ${w.label}`,'road');
+      drawBadge(W*0.10,H*0.12,`Weather: ${w.setupLabel} • ${w.sectorLabel}`,'road');
     }
 
     // Draw cars
@@ -2428,6 +2542,12 @@ function autoResolveUpgradeActionsAI(p){
   function renderSetupUI(){
     const t = G.track;
     const players = G.players;
+    const pid = G.trackPresetId || getInitialTrackPresetId();
+    const trackOptions = (TRACK_LIBRARY||[])
+      .filter(p=>p.id!=='custom')
+      .map(p=>`<option value="${p.id}" ${pid===p.id?'selected':''}>${escapeHtml(p.name)}</option>`)
+      .join('')
+      + `<option value="custom" ${pid==='custom'?'selected':''}>Custom (your edits)</option>`;
 
     const playerRows = players.map((p, idx) => `
       <div class="note" style="display:flex;flex-direction:column;gap:8px">
@@ -2471,7 +2591,12 @@ function autoResolveUpgradeActionsAI(p){
         <div class="row" style="justify-content:space-between">
           <div>
             <strong>Track Preset</strong>
-            <div class="small muted">You can edit later in Track Editor.</div>
+            <div class="small muted">Pick a preset (schematic) or use Custom. Edit details in Track Editor.</div>
+          <div class="row" style="margin-top:8px">
+            <label class="small" style="flex:1">Preset
+              <select id="trackPresetSel" style="width:100%;margin-top:6px">${trackOptions}</select>
+            </label>
+          </div>
           </div>
           <div class="row">
             <button class="btn small" data-act="resetTrack">Reset to default</button>
@@ -2578,7 +2703,7 @@ function autoResolveUpgradeActionsAI(p){
         if (act === 'addAI') addPlayer(true);
         if (act === 'start') startRace();
         if (act === 'randomizeGrid') { pushHistory('Randomize starting grid'); randomizeStartingGrid(); renderAll(); }
-        if (act === 'resetTrack') { pushHistory('Reset track'); setTrack(DEFAULT_TRACK, {persist:true, remapPositions:true}); renderAll(); }
+        if (act === 'resetTrack') { pushHistory('Reset track'); setTrack(DEFAULT_TRACK, {persist:true, presetId:'demo', remapPositions:true}); renderAll(); }
         if (act === 'applyTrackBasics') { pushHistory('Apply track basics'); applyTrackBasics(); renderAll(); }
         if (act === 'setSeed') { pushHistory('Set seed'); setSeedFromInput(); renderAll(); }
       });
@@ -2601,6 +2726,27 @@ function autoResolveUpgradeActionsAI(p){
     if (selPool) selPool.addEventListener('change', ()=>{
       pushHistory('Change Upgrade Pool');
       G.modules.upgradePool = selPool.value;
+      renderAll();
+    });
+
+
+    // Track preset selection
+    const trackSel = $('#trackPresetSel');
+    if (trackSel) trackSel.addEventListener('change', ()=>{
+      const id = trackSel.value;
+      pushHistory('Select track preset');
+      if (id === 'custom'){
+        const ct = loadCustomTrack();
+        setTrack(ct, {persist:true, presetId:'custom', remapPositions:true});
+      } else {
+        const preset = getPresetById(id);
+        if (preset && preset.track){
+          setTrack(preset.track, {persist:true, presetId:id, remapPositions:true});
+        } else {
+          setTrack(DEFAULT_TRACK, {persist:true, presetId:'demo', remapPositions:true});
+        }
+      }
+      // Track change resets module token placement
       renderAll();
     });
 
@@ -2676,7 +2822,10 @@ function autoResolveUpgradeActionsAI(p){
       setupKey: ws[0].key,
       setupLabel: ws[0].label,
       sectorKey: we[0].key,
-      sectorLabel: we[0].label
+      sectorLabel: we[0].label,
+      // display helpers for UI
+      label: ws[0].label,
+      desc: `Setup: ${ws[0].label} • Sector: ${we[0].label}`
     };
 
     // Build 12 road tokens (6 corner tokens + 6 sector tokens)
@@ -3299,7 +3448,7 @@ function upgradeCardFaceText(c){
     const t = normalizeTrack({...G.track, spacesCount:spaces, spotsPerSpace:spots, finishIndex:finish, lapsRequired:laps, startGridStartIndex:start});
     // Re-clip corners into new range
     t.corners = (G.track.corners||[]).filter(c => c.cornerLineIndex < t.spacesCount);
-    setTrack(t, {persist:true, remapPositions:true});
+    setTrack(t, {persist:true, presetId:'custom', remapPositions:true});
   }
 
   function setSeedFromInput(){
@@ -4237,7 +4386,7 @@ if (G.activeStep === STEP.REACT){
       try{
         const obj = JSON.parse(raw);
         pushHistory('Apply track editor');
-        setTrack(obj, {persist:true, remapPositions:true});
+        setTrack(obj, {persist:true, presetId:'custom', remapPositions:true});
         closeModal();
         renderAll();
       } catch(e){
@@ -4346,7 +4495,7 @@ if (G.activeStep === STEP.REACT){
         pushHistory('Load game');
         G = obj.game;
         // Normalize + persist track just in case
-        setTrack(G.track, {persist:true, remapPositions:false});
+        setTrack(G.track, {persist:true, presetId:(G.trackPresetId||'custom'), remapPositions:false});
         rng = makeRng(G.seed, G.rngCalls||0);
         renderAll();
         log('Game loaded.');
