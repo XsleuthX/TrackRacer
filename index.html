@@ -179,6 +179,30 @@
 .trackTokens .tokLine{font-size:12px;color:rgba(255,255,255,.8);line-height:1.25;}
 .badge.road{background:rgba(255,190,92,.16);border-color:rgba(255,190,92,.35);color:rgba(255,230,190,.95);}
 .badge.sector{background:rgba(120,210,255,.14);border-color:rgba(120,210,255,.33);color:rgba(215,245,255,.95);}
+
+  /* --- Track Map View (original visual treatment) --- */
+  .trackCanvas{
+    width:100%;
+    height:520px;
+    display:block;
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    background:
+      radial-gradient(1200px 600px at 70% 60%, rgba(255,255,255,0.05), transparent 60%),
+      linear-gradient(135deg, rgba(255,190,120,0.10), rgba(255,120,90,0.06)),
+      repeating-linear-gradient(0deg, rgba(255,255,255,0.045) 0 1px, transparent 1px 24px),
+      repeating-linear-gradient(90deg, rgba(255,255,255,0.045) 0 1px, transparent 1px 24px),
+      #1a1410;
+    box-shadow:0 18px 45px rgba(0,0,0,0.35) inset, 0 10px 30px rgba(0,0,0,0.25);
+  }
+  .trackViewModeHint{
+    font-size:12px; color:var(--muted);
+  }
+  .badgeMap{
+    position:absolute;
+    pointer-events:none;
+  }
+
 </style>
 </head>
 <body>
@@ -206,6 +230,11 @@
       <div class="trackTools">
         <span class="tag2">Zoom</span>
         <input id="zoom" type="range" min="68" max="140" value="92" />
+        <span class="tag2">View</span>
+        <select id="trackViewMode">
+          <option value="map" selected>Map</option>
+          <option value="strip">Strip</option>
+        </select>
         <span class="tag2">Auto-scroll</span>
         <select id="autoScroll">
           <option value="on" selected>On</option>
@@ -216,6 +245,7 @@
     </div>
     <div class="trackView" id="trackView">
       <div class="trackTokens" id="trackTokens"></div>
+      <canvas class="trackCanvas" id="trackCanvas"></canvas>
       <div class="trackGrid" id="trackGrid"></div>
     </div>
   </section>
@@ -1130,224 +1160,193 @@ function advanceResolutionIdx(){
   }
 
   function doRevealAndMove(p){
-    // This function may be re-entered if a human must choose a variable Speed (Brakes) value.
-    // Use p._revealPrepared / p._revealProcessed to avoid duplicating flips, costs, or moving cards twice.
-    if (!p._revealPrepared){
-      p.boostUsed = false;
+  // Re-enterable if a human must choose a variable Speed (Brakes) value.
+  if (!p._revealPrepared){
+    p.boostUsed = false;
+    G.cornerCrossed = [];
+    G.speedForCorner = 0;
+    G.crossedFinishFinal = false;
+
+    // Per-turn upgrade modifiers / symbol counters
+    p._turnSlipBonus = 0;
+    p._turnLimitMod = 0;
+    p._symbolsAppliedCount = 0; // upgrade symbols actually applied during React
+    p._plusSymbolsResolved = 0;
+
+    // Transfer planned cards into play area
+    p.play = p.planned.cards.map(id => {
+      const i = p.hand.findIndex(c => c.id === id);
+      if (i >= 0) return p.hand.splice(i,1)[0];
+      return null;
+    }).filter(Boolean);
+
+    // Cluttered hand rule
+    if (p.play.length < p.gear){
+      const need = p.gear - p.play.length;
+      const heats = [];
+      for (let k=0;k<need;k++){
+        const hi = p.hand.findIndex(c => c.type === 'heat');
+        if (hi >= 0) heats.push(p.hand.splice(hi,1)[0]);
+      }
+      p.play.push(...heats);
+      log(`${p.name} has a cluttered hand and cannot play enough cards. No movement; gear drops to 1.`);
+      p.gear = 1;
+      discardCards(p, p.play.splice(0,p.play.length));
       G.cornerCrossed = [];
       G.speedForCorner = 0;
       G.crossedFinishFinal = false;
-
-      // Transfer planned cards into play area (face-down already chosen)
-      p.play = p.planned.cards.map(id => {
-        const i = p.hand.findIndex(c => c.id === id);
-        if (i >= 0) return p.hand.splice(i,1)[0];
-        return null;
-      }).filter(Boolean);
-
-      // Cluttered hand rule
-      if (p.play.length < p.gear){
-        const need = p.gear - p.play.length;
-        const heats = [];
-        for (let k=0;k<need;k++){
-          const hi = p.hand.findIndex(c => c.type === 'heat');
-          if (hi >= 0) heats.push(p.hand.splice(hi,1)[0]);
-        }
-        p.play.push(...heats);
-        log(`${p.name} has a cluttered hand and cannot play enough cards. No movement; gear drops to 1.`);
-        p.gear = 1;
-        discardCards(p, p.play.splice(0,p.play.length));
-        G.cornerCrossed = [];
-        G.cornersPaid = [];
-        G.speedForCorner = 0;
-        G.boostAddedSpeed = 0;
-        G.crossedFinishFinal = false;
-        p._revealPrepared = false;
-        p._revealProcessed = false;
-        return { nextStep: STEP.REPLENISH };
-      }
-
-      // Stress cards (+): flip until Basic appears. Keep the flipped Basic attached to the Stress until replenish.
-      for (let i=0;i<p.play.length;i++){
-        const c = p.play[i];
-        if (c.type === 'stress' && !c.revealedCard){
-          const basic = resolveStressIntoBasic(p);
-          if (basic) c.revealedCard = basic;
-        }
-      }
-
-      // Upgrade cards: compute passive bonuses and resolve any "+" symbols into extra flipped Basics.
-      p._upgCooldownBonus = 0;
-      p._upgSlipBonus = 0;
-      p._upgLimitMod = 0;
-      p._upgScrap = 0;
-      p._upgReduceStress = 0;
-      p._upgRefreshIds = [];
-
-      for (const c of p.play){
-        if (c.type !== 'upgrade') continue;
-
-        // NOTE: mandatory Heat costs for upgrades are handled immediately in this simulator
-        // (the official booklet treats mandatory symbols as costs during React). We keep this behavior
-        // for now to avoid deep state-machine changes, but we DO handle the official "can't pay" fallback.
-        if (c.payHeatCost && c.payHeatCost > 0){
-          if (p.engine.length >= c.payHeatCost){
-            payHeat(p, c.payHeatCost);
-            log(`${p.name} pays ${c.payHeatCost} Heat to use ${c.label||c.name}.`);
-          } else {
-            log(`${p.name} cannot pay Heat cost for ${c.label||c.name}. Discards it and flips a replacement speed card.`);
-            const pi = p.play.findIndex(x=>x.id===c.id);
-            if (pi>=0) p.play.splice(pi,1);
-            discardCards(p, [c]);
-            const repl = resolveStressIntoBasic(p);
-            if (repl) p.play.push(repl);
-            continue;
-          }
-        }
-
-        if (c.scrap && c.scrap > 0){
-          let flipped = 0;
-          for (let k=0;k<c.scrap;k++){
-            const card = drawFromDeck(p, {allowReshuffle:true});
-            if (!card) break;
-            discardCards(p, [card]);
-            flipped++;
-          }
-          if (flipped) log(`${p.name} scraps ${flipped} card(s) due to ${c.label||c.name}.`);
-        }
-
-        p._upgCooldownBonus += (c.cool||0);
-        p._upgSlipBonus += (c.slipBonus||0);
-        p._upgLimitMod += (c.limitMod||0);
-        p._upgReduceStress += (c.reduceStress||0);
-        if (c.refresh) p._upgRefreshIds.push(c.id);
-
-        // "+" symbols: flip that many Basic cards. They remain in play until replenish.
-        c.plusCards = c.plusCards || [];
-        if (c.plus && c.plus > 0){
-          for (let k=0;k<c.plus;k++){
-            const b = resolveStressIntoBasic(p);
-            if (!b) break;
-            c.plusCards.push(b);
-            p.play.push(b);
-          }
-        }
-      }
-
-      // Reduce Stress icon: auto-discard up to N Stress from hand.
-      if (p._upgReduceStress && p._upgReduceStress > 0){
-        let removed = 0;
-        for (let i=p.hand.length-1; i>=0 && removed<p._upgReduceStress; i--){
-          if (p.hand[i].type === 'stress'){
-            discardCards(p, [p.hand.splice(i,1)[0]]);
-            removed++;
-          }
-        }
-        if (removed) log(`${p.name} discards ${removed} Stress card(s) due to Upgrade icons.`);
-      }
-
-      p._revealPrepared = true;
-      p._revealProcessed = true;
-      p._movedThisReveal = false;
+      p._revealPrepared = false;
+      p._revealProcessed = false;
+      return { nextStep: STEP.REPLENISH };
     }
 
-    // Compute base speed AFTER resolving Stress flips and "+" symbol flips, but BEFORE choosing any variable-speed upgrade values.
-    const baseSpeed = p.play.reduce((sum,c)=>{
-      if (!c) return sum;
-      if (c.type === 'stress') return sum + (c.revealedCard ? (c.revealedCard.value||0) : 0);
-      if (c.type === 'upgrade'){
-        const plus = (c.plusCards||[]).reduce((s,x)=>s+(x.value||0),0);
-        if (c.choices && (c.chosen==null)) return sum + plus; // variable part chosen later
-        const base = (c.choices ? (c.chosen||0) : (c.value||0));
-        return sum + base + plus;
-      }
-      return sum + (c.value||0);
-    }, 0);
-    p._baseSpeedNoVar = baseSpeed;
-
-    // Variable-speed upgrades ("Brakes"): choose AFTER base speed and boost-symbol flips are resolved.
-    // If any played Upgrade has choices and no chosen value yet, pause here for humans.
-    const brakeCard = p.play.find(c => c && c.type==='upgrade' && c.choices && (c.chosen==null));
-    if (brakeCard){
-      if (p.isAI){
-        // AI: choose conservatively when a corner is near or when base speed already risks overspeed.
-        const N = G.track.spacesCount;
-        const corners = (G.track.corners||[]).slice().sort((a,b)=>a.cornerLineIndex-b.cornerLineIndex);
-        let nextCorner = null;
-        let bestDist = 999999;
-        for (const c of corners){
-          const d = (c.cornerLineIndex - p.pos.idx + N) % N;
-          if (d===0) continue;
-          if (d < bestDist){ bestDist = d; nextCorner = c; }
-        }
-        const choices = brakeCard.choices.slice().sort((a,b)=>a-b);
-        if (!nextCorner){
-          brakeCard.chosen = choices[choices.length-1];
+    // Mandatory Heat-cost upgrades: enforce immediately (pragmatic to avoid retroactive movement issues).
+    // If cannot pay, discard the Upgrade and replace it with a random Basic (as with a "+" symbol).
+    for (let i=0;i<p.play.length;i++){
+      const c = p.play[i];
+      if (!c || c.type !== 'upgrade') continue;
+      if (c.payHeatCost && c.payHeatCost > 0){
+        if (p.engine.length >= c.payHeatCost){
+          payHeat(p, c.payHeatCost);
+          log(`${p.name} pays ${c.payHeatCost} Heat to use ${c.label||c.name}.`);
         } else {
-          const adj = cornerAdjustments(nextCorner.cornerLineIndex);
-          const limit = (nextCorner.speedLimit||0) + (adj.limitMod||0) + (p._upgLimitMod||0);
-          const maxTotal = baseSpeed + choices[choices.length-1];
-          // If close to a corner and highest choice likely overspeeds, pick lowest; else pick highest.
-          const overspeedIfHigh = (maxTotal > limit);
-          brakeCard.chosen = (bestDist <= 6 && overspeedIfHigh) ? choices[0] : choices[choices.length-1];
+          log(`${p.name} cannot pay Heat cost for ${c.label||c.name}. Discards it and flips a replacement speed card.`);
+          p.play.splice(i,1);
+          discardCards(p, [c]);
+          const repl = resolveStressIntoBasic(p);
+          if (repl){ p.play.push(repl); }
+          i--;
         }
-      } else {
-        // Human: prompt with subtotal so the player chooses after seeing Stress/+ flips resolved.
-        G.pendingChoice = {
-          kind:'brake',
-          pid: p.id,
-          cardId: brakeCard.id,
-          choices: brakeCard.choices.slice(),
-          baseSpeed: baseSpeed,
-          label: (brakeCard.name || brakeCard.label || `Upgrade ${brakeCard.upgNum||''}`).trim()
-        };
-        log(`${p.name} must choose a Speed value for ${G.pendingChoice.label} (current subtotal ${baseSpeed}).`);
-        return { nextStep: STEP.REVEAL_MOVE, pause:true };
       }
     }
 
-    // If we've already moved (shouldn't happen, but keep it safe), do nothing.
-    if (p._movedThisReveal){
-      return { nextStep: STEP.ADRENALINE };
-    }
-
-    const speed = p.play.reduce((sum,c)=>{
-      if (c.type === 'stress') return sum + (c.revealedCard ? (c.revealedCard.value||0) : 0);
-      if (c.type === 'upgrade'){
-        const base = (c.choices ? (c.chosen||0) : (c.value||0));
-        const plus = (c.plusCards||[]).reduce((s,x)=>s+(x.value||0),0);
-        return sum + base + plus;
+    // Resolve all boost symbols from Stress and from Upgrade "+" icons.
+    // Per advanced rules: first count printed Speed numbers, then resolve "+" symbols, then choose variable-speed upgrades.
+    // Stress behaves like a "+" symbol: flip until Basic appears, add that speed.
+    // 1) Stress cards: attach revealed Basic to the Stress card
+    for (let i=0;i<p.play.length;i++){
+      const c = p.play[i];
+      if (c.type === 'stress' && !c.revealedCard){
+        const basic = resolveStressIntoBasic(p);
+        if (basic){
+          c.revealedCard = basic;
+        }
       }
-      return sum + (c.value||0);
-    }, 0);
-    G.speedForCorner = speed;
-
-    const res = moveExact(p, speed, {countCorners:true, allowFinishCross:true, forbidCrossFinish:false});
-    G.cornerCrossed = res.cornerCrossed;
-    G.crossedFinishFinal = res.crossedFinishFinal;
-
-    log(`${p.name} reveals ${p.play.map(fmtCard).join(', ')} → Speed ${speed}. Moves to Space ${p.pos.idx}${p.pos.lane===0?" (RL)":" (OUT)"}.`);
-
-    if (G.crossedFinishFinal){
-      p.finished = true;
-      if (!G.finishedOrder.includes(p.id)) G.finishedOrder.push(p.id);
-      p.finishRank = G.finishedOrder.length;
-      log(`${p.name} crosses the finish line (final lap)!`);
     }
 
-    // Determine adrenaline eligibility
-    G.adrenaline.eligible = (G._adrenalineEligibleIds || []).includes(p.id);
-    G.adrenaline.move = false;
-    G.adrenaline.cooldownBonus = 0;
+    // 2) Upgrade "+" icons: flip that many Basics; keep them attached to the Upgrade and in play until replenish.
+    for (const c of p.play){
+      if (!c || c.type !== 'upgrade') continue;
+      c.plusCards = c.plusCards || [];
+      if (c.plus && c.plus > 0){
+        for (let k=0;k<c.plus;k++){
+          const b = resolveStressIntoBasic(p);
+          if (!b) break;
+          c.plusCards.push(b);
+          p.play.push(b);
+          p._plusSymbolsResolved++;
+        }
+      }
+    }
 
-    // Prepare pending flags
-    G._reactPending = false;
-    G._slipPending = true;
-    G._discardPending = true;
-
-    p._movedThisReveal = true;
-    // Keep _revealPrepared true until replenish; it will be cleared in doReplenish.
+    p._revealPrepared = true;
+    p._revealProcessed = true;
+    p._movedThisReveal = false;
   }
+
+  // Compute subtotal after Stress/+ boosts resolved, before choosing any variable-speed upgrade values.
+  const subtotal = p.play.reduce((sum,c)=>{
+    if (!c) return sum;
+    if (c.type === 'stress') return sum + (c.revealedCard ? (c.revealedCard.value||0) : 0);
+    if (c.type === 'upgrade'){
+      const plus = (c.plusCards||[]).reduce((s,x)=>s+(x.value||0),0);
+      if (c.choices && (c.chosen==null)) return sum + plus; // variable chosen later
+      const base = (c.choices ? (c.chosen||0) : (c.value||0));
+      return sum + base + plus;
+    }
+    return sum + (c.value||0);
+  }, 0);
+  p._baseSpeedNoVar = subtotal;
+
+  // Choose variable-speed upgrades ("Brakes") AFTER Stress/+ have been resolved.
+  const nextVar = p.play.find(c => c && c.type==='upgrade' && c.choices && (c.chosen==null));
+  if (nextVar){
+    if (p.isAI){
+      // Conservative AI choice (prefer not to overspeed a nearby corner)
+      const N = G.track.spacesCount;
+      const corners = (G.track.corners||[]).slice().sort((a,b)=>a.cornerLineIndex-b.cornerLineIndex);
+      let nextCorner = null;
+      let bestDist = 999999;
+      for (const cn of corners){
+        const d = (cn.cornerLineIndex - p.pos.idx + N) % N;
+        if (d===0) continue;
+        if (d < bestDist){ bestDist = d; nextCorner = cn; }
+      }
+      const choices = nextVar.choices.slice().sort((a,b)=>a-b);
+      if (!nextCorner){
+        nextVar.chosen = choices[choices.length-1];
+      } else {
+        const adj = cornerAdjustments(nextCorner.cornerLineIndex);
+        const effLimit = (nextCorner.speedLimit||0) + (adj.limitMod||0) + (p._turnLimitMod||0);
+        const high = choices[choices.length-1];
+        const low = choices[0];
+        const overspeedHigh = (subtotal + high) > effLimit;
+        nextVar.chosen = (bestDist <= 6 && overspeedHigh) ? low : high;
+      }
+    } else {
+      G.pendingChoice = {
+        kind:'brake',
+        pid: p.id,
+        cardId: nextVar.id,
+        choices: nextVar.choices.slice(),
+        baseSpeed: subtotal,
+        label: (nextVar.name || nextVar.label || `Upgrade ${nextVar.upgNum||''}`).trim()
+      };
+      log(`${p.name} must choose a Speed value for ${G.pendingChoice.label} (current subtotal ${subtotal}).`);
+      return { nextStep: STEP.REVEAL_MOVE, pause:true };
+    }
+  }
+
+  if (p._movedThisReveal){
+    return { nextStep: STEP.ADRENALINE };
+  }
+
+  const speed = p.play.reduce((sum,c)=>{
+    if (c.type === 'stress') return sum + (c.revealedCard ? (c.revealedCard.value||0) : 0);
+    if (c.type === 'upgrade'){
+      const base = (c.choices ? (c.chosen||0) : (c.value||0));
+      const plus = (c.plusCards||[]).reduce((s,x)=>s+(x.value||0),0);
+      return sum + base + plus;
+    }
+    return sum + (c.value||0);
+  }, 0);
+  G.speedForCorner = speed;
+
+  const res = moveExact(p, speed, {countCorners:true, allowFinishCross:true, forbidCrossFinish:false});
+  G.cornerCrossed = res.cornerCrossed;
+  G.crossedFinishFinal = res.crossedFinishFinal;
+
+  log(`${p.name} reveals ${p.play.map(fmtCard).join(', ')} → Speed ${speed}. Moves to Space ${p.pos.idx}${p.pos.lane===0?" (RL)":" (OUT)"}.`);
+
+  if (G.crossedFinishFinal){
+    p.finished = true;
+    if (!G.finishedOrder.includes(p.id)) G.finishedOrder.push(p.id);
+    p.finishRank = G.finishedOrder.length;
+    log(`${p.name} crosses the finish line (final lap)!`);
+  }
+
+  // Determine adrenaline eligibility
+  G.adrenaline.eligible = (G._adrenalineEligibleIds || []).includes(p.id);
+  G.adrenaline.move = false;
+  G.adrenaline.cooldownBonus = 0;
+
+  // Prepare pending flags
+  G._reactPending = true;
+  G._slipPending = true;
+  G._discardPending = true;
+
+  p._movedThisReveal = true;
+}
 
   function doAdrenaline(p){
     if (!G.adrenaline.eligible){
@@ -1382,37 +1381,34 @@ function advanceResolutionIdx(){
   }
 
   function cooldownCapacity(p){
-    let cap = 0;
-    if (p.gear === 1) cap += 3;
-    if (p.gear === 2) cap += 1;
-    // Adrenaline adds +1 access (represented as bonus capacity)
-    cap += (G.adrenaline.cooldownBonus||0);
+  let cap = 0;
+  if (p.gear === 1) cap += 3;
+  if (p.gear === 2) cap += 1;
+  cap += (G.adrenaline.cooldownBonus||0);
 
-    // Upgrade cards drafted may add extra cooldown when played this turn.
-    if (p && p._upgCooldownBonus) cap += p._upgCooldownBonus;
+  // Weather/Road sector modifiers
+  const se = sectorEffectsForPlayer(p, 'react');
+  if (se.noCooling) return 0;
+  cap += (se.cooldownBonus||0);
 
-    // Weather/Road sector modifiers
-    const se = sectorEffectsForPlayer(p, 'react');
-    if (se.noCooling) return 0;
-    cap += (se.cooldownBonus||0);
+  return cap;
+}
 
-    return cap;
-  }
-
-  function doCooldown(p, n){
-    n = clamp(n, 0, cooldownCapacity(p));
-    let moved = 0;
-    // move heat cards from hand back to engine
-    for (let i=p.hand.length-1; i>=0 && moved<n; i--){
-      const c = p.hand[i];
-      if (c.type === 'heat'){
-        p.hand.splice(i,1);
-        p.engine.unshift(c); // keep engine as queue for easy payHeat
-        moved++;
-      }
+  function doCooldown(p, n, capOverride=null){
+  const cap = (capOverride==null) ? cooldownCapacity(p) : capOverride;
+  n = clamp(n, 0, cap);
+  let moved = 0;
+  for (let i=p.hand.length-1; i>=0 && moved<n; i--){
+    const c = p.hand[i];
+    if (c.type === 'heat'){
+      p.hand.splice(i,1);
+      p.engine.unshift(c);
+      moved++;
     }
-    if (moved) log(`${p.name} cools down: returns ${moved} Heat from hand to engine.`);
   }
+  if (moved) log(`${p.name} cools down: returns ${moved} Heat from hand to engine.`);
+  return moved;
+}
 
   function doBoost(p){
     if (p.boostUsed) return {ok:false, reason:"Boost already used."};
@@ -1452,9 +1448,200 @@ function advanceResolutionIdx(){
   }
 
   function endReact(p){
-    // After react is done
-    G._reactPending = false;
+  // After react is done
+  G._reactPending = false;
+}
+
+function buildReactActions(p){
+  const actions = [];
+  for (const c of p.play){
+    if (!c || c.type !== 'upgrade') continue;
+    const label = (c.name || c.label || `Upgrade ${c.upgNum||''}`).trim();
+    // Mandatory-like effects (we still click through to keep ordering clear)
+    if (c.scrap && c.scrap > 0){
+      actions.push({cardId:c.id, cardLabel:label, type:'scrap', val:c.scrap, mandatory:true});
+    }
+    // Optional effects
+    if (c.cool && c.cool > 0){
+      actions.push({cardId:c.id, cardLabel:label, type:'upgCooldown', val:c.cool, mandatory:false});
+    }
+    if (c.reduceStress && c.reduceStress > 0){
+      actions.push({cardId:c.id, cardLabel:label, type:'reduceStress', val:c.reduceStress, mandatory:false});
+    }
+    if (c.salvage && c.salvage > 0){
+      actions.push({cardId:c.id, cardLabel:label, type:'salvage', val:c.salvage, mandatory:false});
+    }
+    if (c.limitMod && c.limitMod !== 0){
+      actions.push({cardId:c.id, cardLabel:label, type:'limitMod', val:c.limitMod, mandatory:false});
+    }
+    if (c.slipBonus && c.slipBonus > 0){
+      actions.push({cardId:c.id, cardLabel:label, type:'slipBonus', val:c.slipBonus, mandatory:false});
+    }
+    if (c.refresh){
+      actions.push({cardId:c.id, cardLabel:label, type:'refresh', val:1, mandatory:false});
+    }
+    if (c.accelerate){
+      actions.push({cardId:c.id, cardLabel:label, type:'accelerate', val:1, mandatory:false});
+    }
+    // NOTE: Direct Play is not fully supported in this simulator yet.
   }
+  p._reactActions = actions;
+  p._reactActionIdx = 0;
+}
+
+function currentReactAction(p){
+  if (!p._reactActions) return null;
+  return p._reactActions[p._reactActionIdx] || null;
+}
+
+function advanceReactAction(p){
+  p._reactActionIdx = (p._reactActionIdx||0) + 1;
+}
+
+function hasPendingReactActions(p){
+  return !!currentReactAction(p);
+}
+
+function resolveScrap(p, n){
+  n = Math.max(0, n|0);
+  let done = 0;
+  for (let i=0;i<n;i++){
+    const c = drawFromDeck(p, {allowReshuffle:true});
+    if (!c) break;
+    p.discard.push(c);
+    done++;
+  }
+  if (done) log(`${p.name} scraps ${done} card(s) from top of deck.`);
+  return done;
+}
+
+function resolveReduceStress(p, n){
+  n = Math.max(0, n|0);
+  let done = 0;
+  for (let i=p.hand.length-1; i>=0 && done<n; i--){
+    const c = p.hand[i];
+    if (c.type === 'stress'){
+      p.hand.splice(i,1);
+      p.discard.push(c);
+      done++;
+    }
+  }
+  if (done) log(`${p.name} discards ${done} Stress card(s) (reduce stress).`);
+  return done;
+}
+
+function resolveSalvage(p, cardIds){
+  const ids = new Set(cardIds||[]);
+  const picked = [];
+  const rest = [];
+  for (const c of p.discard){
+    if (ids.has(c.id)) picked.push(c);
+    else rest.push(c);
+  }
+  p.discard = rest;
+  if (picked.length){
+    // Shuffle picked into draw deck
+    for (const c of picked) p.deck.push(c);
+    shuffleInPlace(p.deck, G.rng);
+    log(`${p.name} salvages ${picked.length} card(s) into the draw deck.`);
+  } else {
+    log(`${p.name} salvages nothing.`);
+  }
+  return picked.length;
+}
+
+function countBaseSymbolsUsed(p){
+  const stressSymbols = p.play.filter(c=>c.type==='stress').length;
+  const plusSymbols = p._plusSymbolsResolved || 0;
+  const boostSymbol = p.boostUsed ? 1 : 0;
+  return stressSymbols + plusSymbols + boostSymbol;
+}
+
+function applyAccelerate(p){
+  // Optional: increase Speed by 1 for every symbol used by you this turn.
+  // Approximation: stress symbols + upgrade "+" symbols + boost symbol + applied upgrade symbols + this accelerate symbol.
+  const totalSymbols = countBaseSymbolsUsed(p) + (p._symbolsAppliedCount||0) + 1;
+  const extra = totalSymbols;
+  if (extra <= 0) return 0;
+
+  const res = moveExact(p, extra, {countCorners:true, allowFinishCross:true, forbidCrossFinish:false});
+  if (res && res.cornerCrossed && res.cornerCrossed.length){
+    G.cornerCrossed.push(...res.cornerCrossed);
+  }
+  if (res.crossedFinishFinal){
+    G.crossedFinishFinal = true;
+    p.finished = true;
+    if (!G.finishedOrder.includes(p.id)) G.finishedOrder.push(p.id);
+    p.finishRank = G.finishedOrder.length;
+  }
+  G.speedForCorner += extra;
+  log(`${p.name} accelerates: +${extra} speed (symbols used: ${totalSymbols}).`);
+  return extra;
+}
+
+function autoResolveUpgradeActionsAI(p){
+  if (!p._reactActions) buildReactActions(p);
+  while (hasPendingReactActions(p)){
+    const a = currentReactAction(p);
+    const c = p.play.find(x=>x && x.id===a.cardId);
+    switch(a.type){
+      case 'scrap': {
+        resolveScrap(p, a.val);
+        p._symbolsAppliedCount = (p._symbolsAppliedCount||0) + 1;
+        break;
+      }
+      case 'upgCooldown': {
+        // Use max
+        const moved = doCooldown(p, a.val, a.val);
+        if (moved>0) p._symbolsAppliedCount = (p._symbolsAppliedCount||0) + 1;
+        break;
+      }
+      case 'reduceStress': {
+        const moved = resolveReduceStress(p, a.val);
+        if (moved>0) p._symbolsAppliedCount = (p._symbolsAppliedCount||0) + 1;
+        break;
+      }
+      case 'salvage': {
+        // Take up to N highest value basic/upgrade from discard
+        const pick = p.discard.slice().sort((x,y)=>(y.value||0)-(x.value||0)).slice(0, a.val).map(x=>x.id);
+        const moved = resolveSalvage(p, pick);
+        if (moved>0) p._symbolsAppliedCount = (p._symbolsAppliedCount||0) + 1;
+        break;
+      }
+      case 'limitMod': {
+        // Apply only if crossed corners
+        if ((G.cornerCrossed||[]).length){
+          p._turnLimitMod = (p._turnLimitMod||0) + a.val;
+          p._symbolsAppliedCount = (p._symbolsAppliedCount||0) + 1;
+          log(`${p.name} applies ${a.cardLabel}: corner limit ${a.val>0?'+':'−'}${Math.abs(a.val)} this turn.`);
+        }
+        break;
+      }
+      case 'slipBonus': {
+        p._turnSlipBonus = (p._turnSlipBonus||0) + a.val;
+        p._symbolsAppliedCount = (p._symbolsAppliedCount||0) + 1;
+        log(`${p.name} applies ${a.cardLabel}: Slipstream +${a.val} this turn.`);
+        break;
+      }
+      case 'refresh': {
+        if (c){ c._refreshChosen = true; }
+        p._symbolsAppliedCount = (p._symbolsAppliedCount||0) + 1;
+        log(`${p.name} sets ${a.cardLabel} to refresh (topdeck) at Replenish.`);
+        break;
+      }
+      case 'accelerate': {
+        // Conservative: only accelerate if no corner crossed (to avoid extra heat), or if plenty of heat
+        const nearCorner = (G.cornerCrossed||[]).length>0;
+        if (!nearCorner && p.engine.length>=2){
+          applyAccelerate(p);
+          p._symbolsAppliedCount = (p._symbolsAppliedCount||0) + 1;
+        }
+        break;
+      }
+    }
+    advanceReactAction(p);
+  }
+}
 
   function slipEligible(p){
     if (G.crossedFinishFinal) return false;
@@ -1465,148 +1652,148 @@ function advanceResolutionIdx(){
   }
 
   function doSlipstream(p, doIt){
-    if (!doIt) {
-      log(`${p.name} skips Slipstream.`);
-      return;
-    }
-
-    const se = sectorEffectsForPlayer(p, 'slip');
-    if (se.noSlip){
-      log(`${p.name} cannot start Slipstream in this sector (No Slipstream).`);
-      return;
-    }
-
-    if (!slipEligible(p)){
-      log(`${p.name} cannot Slipstream.`);
-      return;
-    }
-
-    // Slipstream move (base 2) + possible sector bonus
-    const dist = 2 + (se.slipBonus||0) + (p._upgSlipBonus||0);
-
-    // Slipstream cannot cross finish line (final lap rule already enforced)
-    const res = moveExact(p, dist, {countCorners:true, allowFinishCross:true, forbidCrossFinish:true});
-    if (res && res.cornerCrossed && res.cornerCrossed.length){
-      G.cornerCrossed.push(...res.cornerCrossed);
-    }
-    log(`${p.name} slipstreams +${dist} space(s).`);
+  if (!doIt) {
+    log(`${p.name} skips Slipstream.`);
+    return;
   }
+
+  const se = sectorEffectsForPlayer(p, 'slip');
+  if (se.noSlip){
+    log(`${p.name} cannot start Slipstream in this sector (No Slipstream).`);
+    return;
+  }
+
+  if (!slipEligible(p)){
+    log(`${p.name} cannot Slipstream.`);
+    return;
+  }
+
+  const upgBonus = (p._turnSlipBonus||0);
+  const dist = 2 + (se.slipBonus||0) + upgBonus;
+
+  const res = moveExact(p, dist, {countCorners:true, allowFinishCross:true, forbidCrossFinish:true});
+  if (res && res.cornerCrossed && res.cornerCrossed.length){
+    G.cornerCrossed.push(...res.cornerCrossed);
+  }
+  log(`${p.name} slipstreams +${dist} space(s).`);
+}
 
   function endSlipstream(p){
     G._slipPending = false;
   }
 
   function doCheckCorner(p){
-    // Only applies if crossed a corner line
-    const list = (G.cornerCrossed||[]);
-    if (!list.length){
-      log(`${p.name} crosses no corners.`);
-      return;
+  const list = (G.cornerCrossed||[]);
+  if (!list.length){
+    log(`${p.name} crosses no corners.`);
+    return;
+  }
+
+  for (const corner of list){
+    const baseLimit = corner.speedLimit;
+    const speed = G.speedForCorner;
+
+    const adj = cornerAdjustments(corner.cornerLineIndex);
+    const upgMod = (p._turnLimitMod||0);
+    const limit = baseLimit + (adj.limitMod||0) + upgMod;
+
+    if (speed <= limit){
+      const mods=[];
+      if (adj.limitMod) mods.push(`road ${adj.limitMod>0?'+':'−'}${Math.abs(adj.limitMod)}`);
+      if (upgMod) mods.push(`upgrade ${upgMod>0?'+':'−'}${Math.abs(upgMod)}`);
+      const modTxt = mods.length ? ` (limit ${baseLimit} + ${mods.join(' + ')} = ${limit})` : '';
+      log(`${p.name} corner @${corner.cornerLineIndex}${modTxt}: Speed ${speed} ≤ ${limit}. OK.`);
+      continue;
     }
 
-    // Pay each separately in order crossed.
-    for (const corner of list){
-      const baseLimit = corner.speedLimit;
-      const speed = G.speedForCorner;
+    let need = speed - limit;
+    if (adj.overheat) need += 1;
 
-      const adj = cornerAdjustments(corner.cornerLineIndex);
-      const limit = baseLimit + (adj.limitMod||0) + (p._upgLimitMod||0);
+    const paid = payHeat(p, need);
+    if (paid === need){
+      const extra = adj.overheat ? ' (+1 Overheat)' : '';
+      const mods=[];
+      if (adj.limitMod) mods.push(`road ${adj.limitMod>0?'+':'−'}${Math.abs(adj.limitMod)}`);
+      if (upgMod) mods.push(`upgrade ${upgMod>0?'+':'−'}${Math.abs(upgMod)}`);
+      const modTxt = mods.length ? ` (limit ${baseLimit} + ${mods.join(' + ')} = ${limit})` : '';
+      log(`${p.name} corner @${corner.cornerLineIndex}${modTxt}: Speed ${speed} > ${limit}. Pays ${need} Heat${extra}.`);
+      continue;
+    }
 
-      if (speed <= limit){
-        if (adj.limitMod){
-          log(`${p.name} corner @${corner.cornerLineIndex}: Speed ${speed} ≤ Limit ${baseLimit} (${adj.limitMod>0?'+':'−'}${Math.abs(adj.limitMod)}) → OK.`);
-        } else {
-          log(`${p.name} corner @${corner.cornerLineIndex}: Speed ${speed} ≤ Limit ${limit}. OK.`);
-        }
-        continue;
+    log(`${p.name} corner @${corner.cornerLineIndex}: needed ${need} Heat but paid only ${paid} → SPIN OUT!`);
+
+    const N = G.track.spacesCount;
+    const before = (corner.cornerLineIndex - 1 + N) % N;
+
+    let placed = findBestSpot(before);
+    if (!placed){
+      for (let back=1; back<=N; back++){
+        const j = (before - back + N) % N;
+        placed = findBestSpot(j);
+        if (placed) break;
       }
+    }
 
-      // Overspeed: pay heat difference, plus Overheat modifier if present
-      let need = speed - limit;
-      if (adj.overheat) need += 1;
+    p.pos.idx = placed.idx;
+    p.pos.lane = placed.lane;
 
-      const paid = payHeat(p, need);
-      if (paid === need){
-        const extra = adj.overheat ? ' (+1 Overheat)' : '';
-        const modPieces = [];
-        if (adj.limitMod) modPieces.push(`road ${adj.limitMod>0?'+':'−'}${Math.abs(adj.limitMod)}`);
-        if (p._upgLimitMod) modPieces.push(`upgrade ${p._upgLimitMod>0?'+':'−'}${Math.abs(p._upgLimitMod)}`);
-        const modTxt = modPieces.length ? ` (limit ${baseLimit} + ${modPieces.join(' + ')} = ${limit})` : '';
-        log(`${p.name} corner @${corner.cornerLineIndex}${modTxt}: Speed ${speed} > ${limit}. Pays ${need} Heat${extra}.`);
-        continue;
+    const add = (p.gear <= 2) ? 1 : 2;
+    addStressToHand(p, add);
+    p.gear = 1;
+    log(`${p.name} spins out → back to Space ${p.pos.idx}. Takes ${add} Stress into hand. Gear → 1.`);
+    break;
+  }
+}
+
+  function doReplenish(p){
+  if (p.play.length){
+    const toDiscard = [];
+    const toRefresh = [];
+    while (p.play.length){
+      const c = p.play.shift();
+      if (c.type === 'stress' && c.revealedCard){
+        toDiscard.push(c.revealedCard);
+        delete c.revealedCard;
       }
-
-      // Spin out (cannot pay)
-      log(`${p.name} corner @${corner.cornerLineIndex}: needed ${need} Heat but paid only ${paid} → SPIN OUT!`);
-
-      // Move back to first available space before the corner line that caused it.
-      const N = G.track.spacesCount;
-      const before = (corner.cornerLineIndex - 1 + N) % N;
-
-      let placed = findBestSpot(before);
-      if (!placed){
-        for (let back=1; back<=N; back++){
-          const j = (before - back + N) % N;
-          placed = findBestSpot(j);
-          if (placed) break;
-        }
+      if (c.type === 'upgrade' && c._refreshChosen){
+        toRefresh.push(c);
+        c._refreshChosen = false;
+      } else {
+        toDiscard.push(c);
       }
-
-      p.pos.idx = placed.idx;
-      p.pos.lane = placed.lane;
-
-      // Take stress into hand: +1 in gear 1/2, +2 in gear 3/4
-      const add = (p.gear <= 2) ? 1 : 2;
-      addStressToHand(p, add);
-      p.gear = 1;
-      log(`${p.name} spins out → back to Space ${p.pos.idx}. Takes ${add} Stress into hand. Gear → 1.`);
-
-      // After spin out, stop checking remaining corners.
-      break;
+    }
+    discardCards(p, toDiscard);
+    if (toRefresh.length){
+      const nRef = toRefresh.length;
+      // Put refresh cards on top in the order they were resolved (last chosen ends up on top).
+      while (toRefresh.length){
+        const c = toRefresh.pop();
+        p.deck.unshift(c);
+      }
+      log(`${p.name} refreshes ${nRef} card(s) to top of deck.`);
     }
   }
 
-  function doReplenish(p){
-    // Move all play area cards to discard (include any Stress-revealed Basic cards)
-    // Refresh upgrades: instead of discarding, place them back on top of the draw deck (so they cycle faster).
-    if (p.play.length){
-      const toDiscard = [];
-      const toRefresh = [];
-      while (p.play.length){
-        const c = p.play.shift();
-        if (c.type === 'stress' && c.revealedCard){
-          toDiscard.push(c.revealedCard);
-          delete c.revealedCard;
-        }
-        // Refresh upgrades go to deck-top.
-        if (c.type === 'upgrade' && c.refresh){
-          toRefresh.push(c);
-        } else {
-          toDiscard.push(c);
-        }
-      }
-      if (toDiscard.length) discardCards(p, toDiscard);
-      if (toRefresh.length){
-        for (const c of toRefresh) p.deck.push(c);
-        log(`${p.name} refreshes ${toRefresh.length} upgrade card(s) to the top of their deck.`);
-      }
-    }
-    // Draw back up to 7
-    while (p.hand.length < 7){
-      const c = drawFromDeck(p, {allowReshuffle:true});
-      if (!c) break;
-      p.hand.push(c);
-    }
-    log(`${p.name} replenishes to ${p.hand.length} card(s). Deck ${p.deck.length}, Discard ${p.discard.length}, Engine Heat ${p.engine.length}.`);
-    p._resolvedThisRound = true;
+  // Clear per-turn state
+  p._revealPrepared = false;
+  p._revealProcessed = false;
+  p._movedThisReveal = false;
+  p._turnSlipBonus = 0;
+  p._turnLimitMod = 0;
+  p._symbolsAppliedCount = 0;
+  p._reactActions = null;
+  p._reactActionIdx = 0;
 
-    // If finished this round, keep them flagged. Core rules remove at end of round; we keep visible but marked.
-  
-    // Clear per-reveal flags and pending UI choices (brakes)
-    p._revealPrepared = false;
-    p._revealProcessed = false;
-    p._movedThisReveal = false;
-    if (G.pendingChoice && G.pendingChoice.pid===p.id) G.pendingChoice = null;
+  // Draw back up to 7
+  const before = p.hand.length;
+  while (p.hand.length < 7){
+    const c = drawFromDeck(p, {allowReshuffle:true});
+    if (!c) break;
+    p.hand.push(c);
+  }
+  // Mark this car as fully resolved for this round (prevents round-skip or infinite rebuild loops)
+  p._resolvedThisRound = true;
+  log(`${p.name} replenishes to ${p.hand.length} card(s). Deck ${p.deck.length}, Discard ${p.discard.length}, Engine Heat ${p.engine.length}.`);
 }
 
   /***********************
@@ -1756,6 +1943,9 @@ function advanceResolutionIdx(){
 
     // React: do cooldown and maybe boost
     if (G.activeStep === STEP.REACT){
+      // Resolve any upgrade symbols sequentially (AI auto-resolves).
+      autoResolveUpgradeActionsAI(p);
+
       const cap = cooldownCapacity(p);
       if (cap > 0){
         // move as many heat from hand as possible
@@ -1948,7 +2138,226 @@ function advanceResolutionIdx(){
       wrap.appendChild(token);
       spot.appendChild(wrap);
     }
+  
+    renderTrackMap();
   }
+  function renderTrackMap(){
+    const mode = ($('#trackViewMode')?.value) || 'map';
+    const canvas = $('#trackCanvas');
+    const grid = $('#trackGrid');
+    if (!canvas) return;
+    if (mode !== 'map'){
+      canvas.style.display = 'none';
+      if (grid) grid.style.display = '';
+      return;
+    }
+    canvas.style.display = '';
+    if (grid) grid.style.display = 'none';
+
+    const t = G.track;
+    const ctx = canvas.getContext('2d');
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    const W = canvas.clientWidth || 900;
+    const H = canvas.clientHeight || 520;
+    canvas.width = Math.floor(W * dpr);
+    canvas.height = Math.floor(H * dpr);
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,W,H);
+
+    // ---- Layout: a stylized "desert circuit" inspired by the reference image (original artwork, not copied) ----
+    // Polyline points in relative coordinates (0..1), then sampled into N spaces.
+    const poly = [
+      [0.14,0.80],[0.82,0.80],[0.92,0.72],[0.92,0.22],[0.72,0.18],[0.54,0.26],
+      [0.58,0.52],[0.44,0.62],[0.30,0.52],[0.36,0.34],[0.24,0.22],[0.12,0.30],[0.10,0.52],[0.14,0.80]
+    ];
+    const N = t.spacesCount;
+
+    function dist(a,b){ const dx=a[0]-b[0], dy=a[1]-b[1]; return Math.hypot(dx,dy); }
+    const pts = poly.map(p=>[p[0]*W, p[1]*H]);
+    const segLen = [];
+    let total = 0;
+    for (let i=0;i<pts.length-1;i++){
+      const d = dist(pts[i], pts[i+1]);
+      segLen.push(d); total += d;
+    }
+    // sample positions along polyline
+    const samples = [];
+    for (let i=0;i<N;i++){
+      const target = (i/(N)) * total;
+      let acc = 0, seg = 0;
+      while (seg < segLen.length && acc + segLen[seg] < target){ acc += segLen[seg]; seg++; }
+      const a = pts[Math.min(seg, pts.length-2)];
+      const b = pts[Math.min(seg+1, pts.length-1)];
+      const local = segLen[seg] ? (target-acc)/segLen[seg] : 0;
+      const x = a[0] + (b[0]-a[0])*local;
+      const y = a[1] + (b[1]-a[1])*local;
+      const tx = (b[0]-a[0]); const ty=(b[1]-a[1]);
+      const tl = Math.hypot(tx,ty) || 1;
+      const nx = -ty/tl, ny = tx/tl; // normal
+      samples.push({x,y, nx, ny, tx:tx/tl, ty:ty/tl});
+    }
+
+    // Background vignette
+    ctx.save();
+    const grd = ctx.createRadialGradient(W*0.7,H*0.6,10,W*0.7,H*0.6,Math.max(W,H)*0.9);
+    grd.addColorStop(0,'rgba(0,0,0,0)');
+    grd.addColorStop(1,'rgba(0,0,0,0.35)');
+    ctx.fillStyle = grd;
+    ctx.fillRect(0,0,W,H);
+    ctx.restore();
+
+    // Draw road as thick stroke along samples
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    // road shadow
+    ctx.beginPath();
+    for (let i=0;i<samples.length;i++){
+      const s = samples[i];
+      if (i===0) ctx.moveTo(s.x, s.y);
+      else ctx.lineTo(s.x, s.y);
+    }
+    ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+    ctx.lineWidth = 52;
+    ctx.stroke();
+
+    // asphalt
+    ctx.beginPath();
+    for (let i=0;i<samples.length;i++){
+      const s = samples[i];
+      if (i===0) ctx.moveTo(s.x, s.y);
+      else ctx.lineTo(s.x, s.y);
+    }
+    ctx.strokeStyle = '#1b1f26';
+    ctx.lineWidth = 46;
+    ctx.stroke();
+
+    // lane divider (dashed)
+    ctx.beginPath();
+    for (let i=0;i<samples.length;i++){
+      const s = samples[i];
+      if (i===0) ctx.moveTo(s.x, s.y);
+      else ctx.lineTo(s.x, s.y);
+    }
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    ctx.setLineDash([10,12]);
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // finish line
+    const fini = t.finishIndex ?? 0;
+    const fs = samples[(fini+N)%N];
+    ctx.save();
+    ctx.translate(fs.x, fs.y);
+    // rotate to tangent
+    const ang = Math.atan2(fs.ty, fs.tx);
+    ctx.rotate(ang);
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.fillRect(-18,-22,36,6);
+    ctx.fillRect(-18,16,36,6);
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    for (let i=-16;i<=16;i+=8){
+      ctx.fillRect(i,-22,4,44);
+    }
+    ctx.restore();
+
+    // corner markers + tokens
+    const corners = (t.corners||[]).slice().sort((a,b)=>a.cornerLineIndex-b.cornerLineIndex);
+    function drawBadge(x,y,txt,kind){
+      ctx.save();
+      ctx.translate(x,y);
+      ctx.font = '12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+      const padX=8, padY=5;
+      const w = ctx.measureText(txt).width + padX*2;
+      const h = 22;
+      ctx.fillStyle = kind==='corner' ? 'rgba(255,206,91,0.95)' :
+                      kind==='road'   ? 'rgba(91,214,255,0.9)' :
+                      kind==='sector' ? 'rgba(125,255,155,0.85)' :
+                                       'rgba(255,255,255,0.85)';
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+      ctx.lineWidth = 1;
+      roundRect(ctx, -w/2, -h/2, w, h, 10);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(0,0,0,0.82)';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(txt, 0, 0);
+      ctx.restore();
+    }
+    function roundRect(ctx,x,y,w,h,r){
+      ctx.beginPath();
+      ctx.moveTo(x+r,y);
+      ctx.arcTo(x+w,y,x+w,y+h,r);
+      ctx.arcTo(x+w,y+h,x,y+h,r);
+      ctx.arcTo(x,y+h,x,y,r);
+      ctx.arcTo(x,y,x+w,y,r);
+      ctx.closePath();
+    }
+
+    for (const c of corners){
+      const idx = (c.cornerLineIndex+N)%N;
+      const s = samples[idx];
+      // place marker slightly off-road
+      const bx = s.x + s.nx*40;
+      const by = s.y + s.ny*40;
+      drawBadge(bx,by,`≤${c.speedLimit} @${c.cornerLineIndex}`,'corner');
+
+      if (G.weatherRoad){
+        const rt = (G.weatherRoad.roadCorner||{})[c.cornerLineIndex];
+        if (rt){
+          drawBadge(bx,by+26,rt.label,'road');
+        }
+        const st = (G.weatherRoad.roadSector||{})[c.cornerLineIndex];
+        if (st){
+          // sector badge appears near first space after corner
+          const s2 = samples[(idx+1)%N];
+          const sx = s2.x + s2.nx*40;
+          const sy = s2.y + s2.ny*40;
+          drawBadge(sx,sy,st.label,'sector');
+        }
+      }
+    }
+
+    // weather badge
+    if (G.weatherRoad){
+      const w = G.weatherRoad.weatherToken;
+      drawBadge(W*0.10,H*0.12,`Weather: ${w.label}`,'road');
+    }
+
+    // Draw cars
+    for (const p of G.players){
+      if (p.removedFromTrack) continue;
+      const idx = (p.pos.idx+N)%N;
+      const s = samples[idx];
+      const laneOffset = (p.pos.lane===0 ? -9 : 9);
+      const x = s.x + s.nx*laneOffset;
+      const y = s.y + s.ny*laneOffset;
+      // token shadow
+      ctx.beginPath();
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.arc(x+2,y+3,10,0,Math.PI*2);
+      ctx.fill();
+      // token body
+      ctx.beginPath();
+      ctx.fillStyle = p.color || '#ffffff';
+      ctx.arc(x,y,10,0,Math.PI*2);
+      ctx.fill();
+      // outline/highlight active
+      const isActive = (G.phase===PHASE.RESOLUTION && activePlayer()===p);
+      ctx.lineWidth = isActive ? 3 : 2;
+      ctx.strokeStyle = isActive ? 'rgba(91,214,255,0.95)' : 'rgba(255,255,255,0.75)';
+      ctx.stroke();
+
+      ctx.fillStyle = 'rgba(0,0,0,0.85)';
+      ctx.font = '11px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(p.short || p.name?.slice(0,2) || 'P', x, y);
+    }
+  }
+
 
   function renderRight(){
     updatePhasePill();
@@ -3238,49 +3647,176 @@ function upgradeCardFaceText(c){
     }
 
     if (step === STEP.REACT){
-      const cap = cooldownCapacity(p);
-      const heatInHand = p.hand.filter(c=>c.type==='heat').length;
-      const canBoost = (!p.boostUsed && p.engine.length>0);
-      controls = `
-        <div class="note">
-          <div class="row" style="justify-content:space-between">
-            <div>
-              <strong>Step 5: React</strong>
-              <div class="small muted">Activate symbols in any order: Cooldown (from gear, plus Adrenaline), and Boost (pay 1 Heat from engine) once per turn.</div>
-            </div>
-            <button class="btn primary" id="btnNext">Finish React</button>
-          </div>
-          <div class="hr"></div>
-          <div class="grid2">
-            <div class="note" style="margin:0">
-              <div class="row" style="justify-content:space-between">
-                <div>
-                  <strong>Cooldown</strong>
-                  <div class="small muted">Cap: ${cap} • Heat in hand: ${heatInHand}</div>
-                </div>
-                <button class="btn small" id="btnCooldown" ${cap===0||heatInHand===0?'disabled':''}>Use Cooldown</button>
-              </div>
-              <div class="small muted">Returns Heat from hand → engine.</div>
-            </div>
-            <div class="note" style="margin:0">
-              <div class="row" style="justify-content:space-between">
-                <div>
-                  <strong>Boost</strong>
-                  <div class="small muted">Pay 1 Heat → flip until Basic, move that many.</div>
-                </div>
-                <button class="btn small" id="btnBoost" ${!canBoost?'disabled':''}>Boost</button>
-              </div>
-              <div class="small muted">Boost increases corner speed value.</div>
-            </div>
-          </div>
-          <div class="hr"></div>
-          <div class="small muted">Current corner-speed value: <strong>${G.speedForCorner}</strong>. Corners crossed this turn: ${(G.cornerCrossed||[]).map(c=>`@${c.cornerLineIndex}≤${c.speedLimit}`).join(', ')||'none'}.</div>
-          <div class="small muted">If you crossed final finish this turn, Slipstream is not allowed.</div>
+  if (!p._reactActions) buildReactActions(p);
+  const a = currentReactAction(p);
+  const pending = !!a;
+  const cap = cooldownCapacity(p);
+  const heatInHand = p.hand.filter(c=>c.type==='heat').length;
+  const stressInHand = p.hand.filter(c=>c.type==='stress').length;
+  const canBoost = (!p.boostUsed && p.engine.length>0);
+  const finishDisabled = pending ? 'disabled' : '';
+  const actionUI = !a ? `
+    <div class="row"><span class="pill good">All upgrade effects resolved</span></div>
+  ` : (() => {
+    const cardLabel = escapeHtml(a.cardLabel);
+    if (a.type==='scrap'){
+      return `
+        <div class="pill">Upgrade</div>
+        <div class="small" style="margin-top:6px"><strong>${cardLabel}</strong></div>
+        <div class="small muted" style="margin-top:4px">Scrap ${a.val}: discard that many cards from the top of your draw deck.</div>
+        <div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap">
+          <button class="btn good" id="btnActApply">Resolve Scrap</button>
+          <button class="btn" id="btnActSkip">Skip</button>
         </div>
       `;
     }
+    if (a.type==='upgCooldown'){
+      const max = Math.min(a.val, heatInHand);
+      return `
+        <div class="pill">Upgrade</div>
+        <div class="small" style="margin-top:6px"><strong>${cardLabel}</strong></div>
+        <div class="small muted" style="margin-top:4px">Cooldown ${a.val}: return up to ${a.val} Heat from hand → engine.</div>
+        <div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap;align-items:center">
+          <input class="input" style="width:90px" id="actNum" type="number" min="0" max="${max}" value="${max}" />
+          <button class="btn good" id="btnActApply" ${max===0?'disabled':''}>Apply</button>
+          <button class="btn" id="btnActSkip">Skip</button>
+        </div>
+      `;
+    }
+    if (a.type==='reduceStress'){
+      const max = Math.min(a.val, stressInHand);
+      return `
+        <div class="pill">Upgrade</div>
+        <div class="small" style="margin-top:6px"><strong>${cardLabel}</strong></div>
+        <div class="small muted" style="margin-top:4px">Reduce Stress ${a.val}: discard up to ${a.val} Stress card(s) from your hand.</div>
+        <div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap;align-items:center">
+          <input class="input" style="width:90px" id="actNum" type="number" min="0" max="${max}" value="${max}" />
+          <button class="btn good" id="btnActApply" ${max===0?'disabled':''}>Apply</button>
+          <button class="btn" id="btnActSkip">Skip</button>
+        </div>
+      `;
+    }
+    if (a.type==='salvage'){
+      const list = p.discard.slice().reverse().slice(0, 18); // show up to 18 most recent
+      const max = a.val;
+      return `
+        <div class="pill">Upgrade</div>
+        <div class="small" style="margin-top:6px"><strong>${cardLabel}</strong></div>
+        <div class="small muted" style="margin-top:4px">Salvage ${a.val}: choose up to ${a.val} card(s) from your discard to shuffle into your draw deck.</div>
+        <div class="small muted" style="margin-top:6px">Showing up to 18 most recent discard cards:</div>
+        <div class="note" style="margin-top:8px;max-height:140px;overflow:auto">
+          ${list.length?list.map(c=>`<label class="row small" style="gap:8px"><input type="checkbox" class="actPick" value="${c.id}"> ${escapeHtml(fmtCard(c))}</label>`).join(''):`<div class="small muted">Discard is empty.</div>`}
+        </div>
+        <div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap">
+          <button class="btn good" id="btnActApply" ${p.discard.length?'' :'disabled'}>Apply</button>
+          <button class="btn" id="btnActSkip">Skip</button>
+          <span class="pill">Pick ≤ ${max}</span>
+        </div>
+      `;
+    }
+    if (a.type==='limitMod'){
+      return `
+        <div class="pill">Upgrade</div>
+        <div class="small" style="margin-top:6px"><strong>${cardLabel}</strong></div>
+        <div class="small muted" style="margin-top:4px">Corner limit ${a.val>0?'+':'−'}${Math.abs(a.val)} for you this turn (applies to corner checks this round).</div>
+        <div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap">
+          <button class="btn good" id="btnActApply">Apply</button>
+          <button class="btn" id="btnActSkip">Skip</button>
+        </div>
+      `;
+    }
+    if (a.type==='slipBonus'){
+      return `
+        <div class="pill">Upgrade</div>
+        <div class="small" style="margin-top:6px"><strong>${cardLabel}</strong></div>
+        <div class="small muted" style="margin-top:4px">Slipstream +${a.val} for you this turn (adds to the normal +2).</div>
+        <div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap">
+          <button class="btn good" id="btnActApply">Apply</button>
+          <button class="btn" id="btnActSkip">Skip</button>
+        </div>
+      `;
+    }
+    if (a.type==='refresh'){
+      return `
+        <div class="pill">Upgrade</div>
+        <div class="small" style="margin-top:6px"><strong>${cardLabel}</strong></div>
+        <div class="small muted" style="margin-top:4px">Refresh: place this Upgrade on top of your draw deck during Replenish instead of discarding it.</div>
+        <div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap">
+          <button class="btn good" id="btnActApply">Refresh</button>
+          <button class="btn" id="btnActSkip">Skip</button>
+        </div>
+      `;
+    }
+    if (a.type==='accelerate'){
+      return `
+        <div class="pill">Upgrade</div>
+        <div class="small" style="margin-top:6px"><strong>${cardLabel}</strong></div>
+        <div class="small muted" style="margin-top:4px">Accelerate: gain +1 speed for each symbol you've used this turn (approx.). This increases corner speed.</div>
+        <div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap">
+          <button class="btn good" id="btnActApply">Accelerate</button>
+          <button class="btn" id="btnActSkip">Skip</button>
+        </div>
+      `;
+    }
+    return `<div class="small muted">Unknown upgrade effect.</div>`;
+  })();
 
-    if (step === STEP.SLIPSTREAM){
+  controls = `
+    <div class="note">
+      <div class="row" style="justify-content:space-between;align-items:flex-start">
+        <div>
+          <strong>Step 5: React</strong>
+          <div class="small muted">Resolve upgrade symbols one-by-one, then you can finish React. (Gear cooldown and Boost are also available.)</div>
+        </div>
+        <button class="btn primary" id="btnNext" ${finishDisabled}>Finish React</button>
+      </div>
+      <div class="hr"></div>
+
+      <div class="grid2">
+        <div class="note" style="margin:0">
+          <div class="row" style="justify-content:space-between">
+            <div>
+              <strong>Gear Cooldown</strong>
+              <div class="small muted">Cap: ${cap} • Heat in hand: ${heatInHand}</div>
+            </div>
+            <button class="btn small" id="btnCooldown" ${cap===0||heatInHand===0?'disabled':''}>Use</button>
+          </div>
+          <div class="small muted">Returns Heat from hand → engine.</div>
+        </div>
+        <div class="note" style="margin:0">
+          <div class="row" style="justify-content:space-between">
+            <div>
+              <strong>Boost</strong>
+              <div class="small muted">Pay 1 Heat → flip until Basic, move that many.</div>
+            </div>
+            <button class="btn small" id="btnBoost" ${!canBoost?'disabled':''}>Boost</button>
+          </div>
+          <div class="small muted">Boost increases corner speed value.</div>
+        </div>
+      </div>
+
+      <div class="hr"></div>
+
+      <div class="note" style="margin:0">
+        <div class="row" style="justify-content:space-between;align-items:flex-start">
+          <div>
+            <strong>Upgrade Effects</strong>
+            <div class="small muted">Pending: ${pending ? 'Yes' : 'No'} • Queue: ${(p._reactActions||[]).length ? (p._reactActionIdx+1)+' / '+(p._reactActions||[]).length : '0'}</div>
+          </div>
+          <span class="pill">${pending ? 'Resolve next' : 'Done'}</span>
+        </div>
+        <div class="hr"></div>
+        ${actionUI}
+      </div>
+
+      <div class="hr"></div>
+      <div class="small muted">Corner-speed value: <strong>${G.speedForCorner}</strong>. Corners crossed: ${(G.cornerCrossed||[]).map(c=>`@${c.cornerLineIndex}≤${c.speedLimit}`).join(', ')||'none'}.</div>
+      <div class="small muted">If you crossed final finish this turn, Slipstream is not allowed.</div>
+    </div>
+  `;
+}
+
+if (step === STEP.SLIPSTREAM){
       const eligible = slipEligible(p);
       controls = `
         <div class="note">
@@ -3432,27 +3968,97 @@ function upgradeCardFaceText(c){
       const c = $('#adrenCool');
       if (m) m.addEventListener('change', () => { G.adrenaline.move = !!m.checked; });
       if (c) c.addEventListener('change', () => { G.adrenaline.cooldownBonus = c.checked ? 1 : 0; });
+    }// React buttons
+if (G.activeStep === STEP.REACT){
+  // Ensure queue exists for humans too
+  if (!p._reactActions) buildReactActions(p);
+
+  const cd = $('#btnCooldown');
+  const bs = $('#btnBoost');
+  const applyBtn = $('#btnActApply');
+  const skipBtn = $('#btnActSkip');
+
+  if (cd) cd.addEventListener('click', () => {
+    pushHistory(`Gear Cooldown: ${p.name}`);
+    doCooldown(p, cooldownCapacity(p));
+    renderAll();
+  });
+
+  if (bs) bs.addEventListener('click', () => {
+    pushHistory(`Boost: ${p.name}`);
+    const res = doBoost(p);
+    if (!res.ok) toast(res.reason);
+    renderAll();
+  });
+
+  if (applyBtn) applyBtn.addEventListener('click', () => {
+    const a = currentReactAction(p);
+    if (!a) return;
+    pushHistory(`Upgrade effect: ${p.name} ${a.cardLabel} (${a.type})`);
+    const card = p.play.find(x=>x && x.id===a.cardId);
+
+    if (a.type==='scrap'){
+      resolveScrap(p, a.val);
+      p._symbolsAppliedCount = (p._symbolsAppliedCount||0) + 1;
+    } else if (a.type==='upgCooldown'){
+      const max = Math.min(a.val, p.hand.filter(c=>c.type==='heat').length);
+      const inp = $('#actNum');
+      let n = inp ? parseInt(inp.value||'0',10) : max;
+      n = clamp(isNaN(n)?max:n, 0, max);
+      const moved = doCooldown(p, n, a.val);
+      if (moved>0) p._symbolsAppliedCount = (p._symbolsAppliedCount||0) + 1;
+    } else if (a.type==='reduceStress'){
+      const max = Math.min(a.val, p.hand.filter(c=>c.type==='stress').length);
+      const inp = $('#actNum');
+      let n = inp ? parseInt(inp.value||'0',10) : max;
+      n = clamp(isNaN(n)?max:n, 0, max);
+      const moved = resolveReduceStress(p, n);
+      if (moved>0) p._symbolsAppliedCount = (p._symbolsAppliedCount||0) + 1;
+    } else if (a.type==='salvage'){
+      const picks = $$('.actPick').filter(x=>x.checked).map(x=>x.value);
+      if (picks.length > a.val){
+        toast(`Pick at most ${a.val} card(s).`);
+        return;
+      }
+      const moved = resolveSalvage(p, picks);
+      if (moved>0) p._symbolsAppliedCount = (p._symbolsAppliedCount||0) + 1;
+    } else if (a.type==='limitMod'){
+      if ((G.cornerCrossed||[]).length){
+        p._turnLimitMod = (p._turnLimitMod||0) + a.val;
+        p._symbolsAppliedCount = (p._symbolsAppliedCount||0) + 1;
+        log(`${p.name} applies ${a.cardLabel}: corner limit ${a.val>0?'+':'−'}${Math.abs(a.val)} this turn.`);
+      } else {
+        log(`${p.name} applies ${a.cardLabel}, but no corners were crossed this turn.`);
+      }
+    } else if (a.type==='slipBonus'){
+      p._turnSlipBonus = (p._turnSlipBonus||0) + a.val;
+      p._symbolsAppliedCount = (p._symbolsAppliedCount||0) + 1;
+      log(`${p.name} applies ${a.cardLabel}: Slipstream +${a.val} this turn.`);
+    } else if (a.type==='refresh'){
+      if (card){ card._refreshChosen = true; }
+      p._symbolsAppliedCount = (p._symbolsAppliedCount||0) + 1;
+      log(`${p.name} sets ${a.cardLabel} to refresh (topdeck) at Replenish.`);
+    } else if (a.type==='accelerate'){
+      applyAccelerate(p);
+      p._symbolsAppliedCount = (p._symbolsAppliedCount||0) + 1;
     }
 
-    // React buttons
-    if (G.activeStep === STEP.REACT){
-      const cd = $('#btnCooldown');
-      const bs = $('#btnBoost');
-      if (cd) cd.addEventListener('click', () => {
-        pushHistory(`Cooldown: ${p.name}`);
-        doCooldown(p, cooldownCapacity(p));
-        renderAll();
-      });
-      if (bs) bs.addEventListener('click', () => {
-        pushHistory(`Boost: ${p.name}`);
-        const res = doBoost(p);
-        if (!res.ok) toast(res.reason);
-        renderAll();
-      });
-      // React pending ends only when user clicks Finish React
-      G._reactPending = false;
-      // If AI, auto is handled elsewhere
-    }
+    advanceReactAction(p);
+    renderAll();
+  });
+
+  if (skipBtn) skipBtn.addEventListener('click', () => {
+    const a = currentReactAction(p);
+    if (!a) return;
+    pushHistory(`Skip upgrade effect: ${p.name} ${a.cardLabel} (${a.type})`);
+    log(`${p.name} skips ${a.cardLabel} (${a.type}).`);
+    advanceReactAction(p);
+    renderAll();
+  });
+
+  // React pending ends only when user clicks Finish React (and queue is done)
+  G._reactPending = false;
+}
 
     // Slipstream buttons
     if (G.activeStep === STEP.SLIPSTREAM){
@@ -3772,6 +4378,17 @@ function upgradeCardFaceText(c){
     $('#modalBack').addEventListener('click', (e) => { if (e.target === $('#modalBack')) closeModal(); });
     $('#btnClearLog').addEventListener('click', () => { pushHistory('Clear log'); G.log=[]; rebuildLog(); });
     $('#zoom').addEventListener('input', () => renderTrack());
+  // Track view mode (Map/Strip)
+  const tvm = $('#trackViewMode');
+  if (tvm){
+    const saved = localStorage.getItem('heat_track_view_mode');
+    if (saved){ tvm.value = saved; }
+    tvm.addEventListener('change', ()=>{
+      localStorage.setItem('heat_track_view_mode', tvm.value);
+      renderTrack();
+    });
+  }
+
     $('#btnCenter').addEventListener('click', () => {
       let p=null;
       if (G.phase === PHASE.PLANNING) p = G.players[G.planningIdx];
