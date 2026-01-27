@@ -120,7 +120,14 @@
   .sym{font-weight:900}
   .sym.plus{color:var(--accent)}
   .sym.heat{color:var(--bad)}
+  .sym.cool{color:var(--good)}
   .sym.stress{color:var(--warn)}
+
+  /* Upgrade visibility */
+  .upgLabel{font-size:10px;line-height:1.1;color:var(--text);opacity:.9;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .upgList{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+  .upgItem{border:1px solid var(--line);border-radius:12px;background:rgba(0,0,0,.12);padding:8px}
+  .upgDesc{margin:6px 0 0 0;white-space:pre-wrap;font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;font-size:11px;color:var(--muted)}
 
   /* Log */
   .log{max-height:200px;overflow:auto;border:1px solid var(--line);border-radius:12px;background:rgba(0,0,0,.18);padding:10px}
@@ -156,6 +163,22 @@
     .app{grid-template-columns:1fr;}
     .trackView{height:auto;min-height:420px}
   }
+
+/* --- Garage Draft cards --- */
+.market{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-top:8px;}
+.cardBtn{cursor:pointer;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:10px;text-align:left;min-height:110px;transition:transform .08s ease,border-color .08s ease;}
+.cardBtn:hover{transform:translateY(-1px);border-color:rgba(165,220,255,.35);}
+.cardBtn:disabled{opacity:.55;cursor:not-allowed;transform:none;}
+.cardFace{display:flex;flex-direction:column;gap:6px;}
+.cardTitle{font-weight:800;font-size:12px;letter-spacing:.2px;}
+.cardBody{white-space:pre-line;font-size:12px;color:rgba(255,255,255,.78);line-height:1.25;}
+
+/* --- Track tokens (Weather/Road) --- */
+.trackTokens{position:sticky;top:0;z-index:5;margin:0 0 8px 0;padding:8px 10px;border:1px solid rgba(255,255,255,.10);border-radius:14px;background:rgba(12,15,22,.75);backdrop-filter: blur(6px);}
+.trackTokens .row{align-items:flex-start;}
+.trackTokens .tokLine{font-size:12px;color:rgba(255,255,255,.8);line-height:1.25;}
+.badge.road{background:rgba(255,190,92,.16);border-color:rgba(255,190,92,.35);color:rgba(255,230,190,.95);}
+.badge.sector{background:rgba(120,210,255,.14);border-color:rgba(120,210,255,.33);color:rgba(215,245,255,.95);}
 </style>
 </head>
 <body>
@@ -192,6 +215,7 @@
       </div>
     </div>
     <div class="trackView" id="trackView">
+      <div class="trackTokens" id="trackTokens"></div>
       <div class="trackGrid" id="trackGrid"></div>
     </div>
   </section>
@@ -287,12 +311,41 @@
   function fmtCard(c){
     if (!c) return "—";
     if (c.type === 'basic') return `Basic ${c.value}`;
-    if (c.type === 'upgrade') return `Upgrade ${c.value}`;
+    if (c.type === 'upgrade') return c.upgName ? `Upgrade ${c.value} (${c.upgName}${c.cool?`, ❄${c.cool}`:''})` : `Upgrade ${c.value}`;
     if (c.type === 'stress') return c.revealedCard ? `Stress (+→Basic ${c.revealedCard.value})` : `Stress (+)`;
     if (c.type === 'heat') return `Heat`;
     return c.type;
   }
 
+
+  function cardTooltip(c){
+    if (!c) return "—";
+    let t = fmtCard(c);
+    if (c.type === 'upgrade' || (c.type==='heat' && c.origin==='upgrade')){
+      t += "\n" + upgradeCardFaceText(c);
+    }
+    return t;
+  }
+
+  function renderUpgradeDetailsFromHand(hand){
+    const upgs = (hand||[]).filter(c => c.type==='upgrade' || (c.type==='heat' && c.origin==='upgrade'));
+    if (!upgs.length) return '';
+    return `
+      <div class="note small" style="margin-top:10px">
+        <strong>Upgrade cards in hand</strong>
+        <div class="small muted">Name + effect reference (for Advanced mode clarity).</div>
+        <div class="upgList">
+          ${upgs.map(c=>{
+            const title = (c.type==='upgrade') ? `U${c.upgNum} ${c.name}` : `U${c.upgNum||'?'} Heat`;
+            return `<div class="upgItem">
+              <div style="font-weight:850">${escapeHtml(title)}</div>
+              <pre class="upgDesc">${escapeHtml(upgradeCardFaceText(c))}</pre>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>
+    `;
+  }
   /***********************
    * Rules helpers (from official core rules PDF)
    * - Basic deck: 3x(1..4)
@@ -402,6 +455,10 @@
         p.pos.lane = (nt.spotsPerSpace===1) ? 0 : clamp(p.pos.lane,0,1);
       }
     }
+    
+    // Changing track invalidates module token placement & draft state.
+    G.weatherRoad = null;
+    G.draft = null;
     return nt;
   }
 
@@ -411,6 +468,7 @@
    ***********************/
   const PHASE = {
     SETUP: 'setup',
+    DRAFT: 'draft',
     PLANNING: 'planning',
     RESOLUTION: 'resolution',
     FINISHED: 'finished'
@@ -466,6 +524,9 @@
     const seed = ("seed-" + Math.random().toString(16).slice(2,10));
     G = {
       version: 1,
+      modules: {garage:false, weatherRoad:false, upgradePool:'basic'},
+      weatherRoad: null,
+      draft: null,
       seed,
       rngCalls: 0,
       phase: PHASE.SETUP,
@@ -527,12 +588,19 @@
   /***********************
    * Player helpers
    ***********************/
-  function makePlayer({name, color, isAI=false, heatInEngine=6, stressInDeck=3}){
+  function makePlayer({name, color, isAI=false, heatInEngine=6, stressInDeck=3, useStartingUpgrades=true, drawStartHand=true}){
     const basic = makeBasicDeck(color);
-    const upg = makeStartingUpgrades(color);
     const stress = makeStressCards(stressInDeck, color);
-    const deck = [...basic, upg[0], upg[1], ...stress, upg[2]];
+    let deck = [...basic, ...stress];
+
+    if (useStartingUpgrades){
+      const upg = makeStartingUpgrades(color);
+      // Keep same ordering as earlier build: insert 3 starting upgrades into the deck
+      deck = [...basic, upg[0], upg[1], ...stress, upg[2]];
+    }
+
     shuffleInPlace(deck, rng);
+
     const p = {
       id: uid('p'),
       name: name || color,
@@ -552,10 +620,15 @@
       finishRank: null,
       planned: {gearTarget: 1, payHeatForShift: false, cards: []},
       publicTopDiscard: null,
+      // Advanced module per-turn info
+      _upgCooldownBonus: 0,
     };
-    // Draw 7
-    for (let i=0;i<7;i++) p.hand.push(drawFromDeck(p, {allowReshuffle:true}));
-    p.publicTopDiscard = topOf(p.discard);
+
+    if (drawStartHand){
+      for (let i=0;i<7;i++) p.hand.push(drawFromDeck(p, {allowReshuffle:true}));
+      p.publicTopDiscard = topOf(p.discard);
+    }
+
     return p;
   }
 
@@ -1057,68 +1130,204 @@ function advanceResolutionIdx(){
   }
 
   function doRevealAndMove(p){
-    p.boostUsed = false;
-    G.cornerCrossed = [];
-    G.speedForCorner = 0;
-    G.crossedFinishFinal = false;
-
-    // Transfer planned cards into play area (face-down already chosen)
-    p.play = p.planned.cards.map(id => {
-      const i = p.hand.findIndex(c => c.id === id);
-      if (i >= 0) return p.hand.splice(i,1)[0];
-      return null;
-    }).filter(Boolean);
-
-    // Cluttered hand rule: if not enough playable cards for gear, fill with Heat and do not move.
-    // In our UI we prevent selecting Heat. However, if player had too few playable cards, we auto-apply this.
-    if (p.play.length < p.gear){
-      const need = p.gear - p.play.length;
-      // Fill with Heat from hand if present
-      const heats = [];
-      for (let k=0;k<need;k++){
-        const hi = p.hand.findIndex(c => c.type === 'heat');
-        if (hi >= 0) heats.push(p.hand.splice(hi,1)[0]);
-      }
-      p.play.push(...heats);
-      log(`${p.name} has a cluttered hand and cannot play enough cards. No movement; gear drops to 1.`);
-      p.gear = 1;
-      // Discard play area immediately
-      discardCards(p, p.play.splice(0,p.play.length));
+    // This function may be re-entered if a human must choose a variable Speed (Brakes) value.
+    // Use p._revealPrepared / p._revealProcessed to avoid duplicating flips, costs, or moving cards twice.
+    if (!p._revealPrepared){
+      p.boostUsed = false;
       G.cornerCrossed = [];
-      G.cornersPaid = [];
       G.speedForCorner = 0;
-      G.boostAddedSpeed = 0;
       G.crossedFinishFinal = false;
-      // Skip straight to replenish
-      return { nextStep: STEP.REPLENISH };
-    }
 
-    // Resolve Stress cards: for each Stress played, flip until a Basic card appears.
-    // Important: the flipped Basic stays in the play area (stacked on the Stress) and is NOT eligible for reshuffle until replenish.
-    for (let i=0;i<p.play.length;i++){
-      const c = p.play[i];
-      if (c.type === 'stress' && !c.revealedCard){
-        const basic = resolveStressIntoBasic(p);
-        if (basic){
-          c.revealedCard = basic;
+      // Transfer planned cards into play area (face-down already chosen)
+      p.play = p.planned.cards.map(id => {
+        const i = p.hand.findIndex(c => c.id === id);
+        if (i >= 0) return p.hand.splice(i,1)[0];
+        return null;
+      }).filter(Boolean);
+
+      // Cluttered hand rule
+      if (p.play.length < p.gear){
+        const need = p.gear - p.play.length;
+        const heats = [];
+        for (let k=0;k<need;k++){
+          const hi = p.hand.findIndex(c => c.type === 'heat');
+          if (hi >= 0) heats.push(p.hand.splice(hi,1)[0]);
+        }
+        p.play.push(...heats);
+        log(`${p.name} has a cluttered hand and cannot play enough cards. No movement; gear drops to 1.`);
+        p.gear = 1;
+        discardCards(p, p.play.splice(0,p.play.length));
+        G.cornerCrossed = [];
+        G.cornersPaid = [];
+        G.speedForCorner = 0;
+        G.boostAddedSpeed = 0;
+        G.crossedFinishFinal = false;
+        p._revealPrepared = false;
+        p._revealProcessed = false;
+        return { nextStep: STEP.REPLENISH };
+      }
+
+      // Stress cards (+): flip until Basic appears. Keep the flipped Basic attached to the Stress until replenish.
+      for (let i=0;i<p.play.length;i++){
+        const c = p.play[i];
+        if (c.type === 'stress' && !c.revealedCard){
+          const basic = resolveStressIntoBasic(p);
+          if (basic) c.revealedCard = basic;
         }
       }
+
+      // Upgrade cards: compute passive bonuses and resolve any "+" symbols into extra flipped Basics.
+      p._upgCooldownBonus = 0;
+      p._upgSlipBonus = 0;
+      p._upgLimitMod = 0;
+      p._upgScrap = 0;
+      p._upgReduceStress = 0;
+      p._upgRefreshIds = [];
+
+      for (const c of p.play){
+        if (c.type !== 'upgrade') continue;
+
+        // NOTE: mandatory Heat costs for upgrades are handled immediately in this simulator
+        // (the official booklet treats mandatory symbols as costs during React). We keep this behavior
+        // for now to avoid deep state-machine changes, but we DO handle the official "can't pay" fallback.
+        if (c.payHeatCost && c.payHeatCost > 0){
+          if (p.engine.length >= c.payHeatCost){
+            payHeat(p, c.payHeatCost);
+            log(`${p.name} pays ${c.payHeatCost} Heat to use ${c.label||c.name}.`);
+          } else {
+            log(`${p.name} cannot pay Heat cost for ${c.label||c.name}. Discards it and flips a replacement speed card.`);
+            const pi = p.play.findIndex(x=>x.id===c.id);
+            if (pi>=0) p.play.splice(pi,1);
+            discardCards(p, [c]);
+            const repl = resolveStressIntoBasic(p);
+            if (repl) p.play.push(repl);
+            continue;
+          }
+        }
+
+        if (c.scrap && c.scrap > 0){
+          let flipped = 0;
+          for (let k=0;k<c.scrap;k++){
+            const card = drawFromDeck(p, {allowReshuffle:true});
+            if (!card) break;
+            discardCards(p, [card]);
+            flipped++;
+          }
+          if (flipped) log(`${p.name} scraps ${flipped} card(s) due to ${c.label||c.name}.`);
+        }
+
+        p._upgCooldownBonus += (c.cool||0);
+        p._upgSlipBonus += (c.slipBonus||0);
+        p._upgLimitMod += (c.limitMod||0);
+        p._upgReduceStress += (c.reduceStress||0);
+        if (c.refresh) p._upgRefreshIds.push(c.id);
+
+        // "+" symbols: flip that many Basic cards. They remain in play until replenish.
+        c.plusCards = c.plusCards || [];
+        if (c.plus && c.plus > 0){
+          for (let k=0;k<c.plus;k++){
+            const b = resolveStressIntoBasic(p);
+            if (!b) break;
+            c.plusCards.push(b);
+            p.play.push(b);
+          }
+        }
+      }
+
+      // Reduce Stress icon: auto-discard up to N Stress from hand.
+      if (p._upgReduceStress && p._upgReduceStress > 0){
+        let removed = 0;
+        for (let i=p.hand.length-1; i>=0 && removed<p._upgReduceStress; i--){
+          if (p.hand[i].type === 'stress'){
+            discardCards(p, [p.hand.splice(i,1)[0]]);
+            removed++;
+          }
+        }
+        if (removed) log(`${p.name} discards ${removed} Stress card(s) due to Upgrade icons.`);
+      }
+
+      p._revealPrepared = true;
+      p._revealProcessed = true;
+      p._movedThisReveal = false;
+    }
+
+    // Compute base speed AFTER resolving Stress flips and "+" symbol flips, but BEFORE choosing any variable-speed upgrade values.
+    const baseSpeed = p.play.reduce((sum,c)=>{
+      if (!c) return sum;
+      if (c.type === 'stress') return sum + (c.revealedCard ? (c.revealedCard.value||0) : 0);
+      if (c.type === 'upgrade'){
+        const plus = (c.plusCards||[]).reduce((s,x)=>s+(x.value||0),0);
+        if (c.choices && (c.chosen==null)) return sum + plus; // variable part chosen later
+        const base = (c.choices ? (c.chosen||0) : (c.value||0));
+        return sum + base + plus;
+      }
+      return sum + (c.value||0);
+    }, 0);
+    p._baseSpeedNoVar = baseSpeed;
+
+    // Variable-speed upgrades ("Brakes"): choose AFTER base speed and boost-symbol flips are resolved.
+    // If any played Upgrade has choices and no chosen value yet, pause here for humans.
+    const brakeCard = p.play.find(c => c && c.type==='upgrade' && c.choices && (c.chosen==null));
+    if (brakeCard){
+      if (p.isAI){
+        // AI: choose conservatively when a corner is near or when base speed already risks overspeed.
+        const N = G.track.spacesCount;
+        const corners = (G.track.corners||[]).slice().sort((a,b)=>a.cornerLineIndex-b.cornerLineIndex);
+        let nextCorner = null;
+        let bestDist = 999999;
+        for (const c of corners){
+          const d = (c.cornerLineIndex - p.pos.idx + N) % N;
+          if (d===0) continue;
+          if (d < bestDist){ bestDist = d; nextCorner = c; }
+        }
+        const choices = brakeCard.choices.slice().sort((a,b)=>a-b);
+        if (!nextCorner){
+          brakeCard.chosen = choices[choices.length-1];
+        } else {
+          const adj = cornerAdjustments(nextCorner.cornerLineIndex);
+          const limit = (nextCorner.speedLimit||0) + (adj.limitMod||0) + (p._upgLimitMod||0);
+          const maxTotal = baseSpeed + choices[choices.length-1];
+          // If close to a corner and highest choice likely overspeeds, pick lowest; else pick highest.
+          const overspeedIfHigh = (maxTotal > limit);
+          brakeCard.chosen = (bestDist <= 6 && overspeedIfHigh) ? choices[0] : choices[choices.length-1];
+        }
+      } else {
+        // Human: prompt with subtotal so the player chooses after seeing Stress/+ flips resolved.
+        G.pendingChoice = {
+          kind:'brake',
+          pid: p.id,
+          cardId: brakeCard.id,
+          choices: brakeCard.choices.slice(),
+          baseSpeed: baseSpeed,
+          label: (brakeCard.name || brakeCard.label || `Upgrade ${brakeCard.upgNum||''}`).trim()
+        };
+        log(`${p.name} must choose a Speed value for ${G.pendingChoice.label} (current subtotal ${baseSpeed}).`);
+        return { nextStep: STEP.REVEAL_MOVE, pause:true };
+      }
+    }
+
+    // If we've already moved (shouldn't happen, but keep it safe), do nothing.
+    if (p._movedThisReveal){
+      return { nextStep: STEP.ADRENALINE };
     }
 
     const speed = p.play.reduce((sum,c)=>{
       if (c.type === 'stress') return sum + (c.revealedCard ? (c.revealedCard.value||0) : 0);
+      if (c.type === 'upgrade'){
+        const base = (c.choices ? (c.chosen||0) : (c.value||0));
+        const plus = (c.plusCards||[]).reduce((s,x)=>s+(x.value||0),0);
+        return sum + base + plus;
+      }
       return sum + (c.value||0);
     }, 0);
     G.speedForCorner = speed;
 
-    // Move exactly speed spaces
     const res = moveExact(p, speed, {countCorners:true, allowFinishCross:true, forbidCrossFinish:false});
     G.cornerCrossed = res.cornerCrossed;
     G.crossedFinishFinal = res.crossedFinishFinal;
 
     log(`${p.name} reveals ${p.play.map(fmtCard).join(', ')} → Speed ${speed}. Moves to Space ${p.pos.idx}${p.pos.lane===0?" (RL)":" (OUT)"}.`);
 
-    // Mark finished? If lap >= required, consider finished for end of round. The car remains on track until end of round per rules; we keep it but flag.
     if (G.crossedFinishFinal){
       p.finished = true;
       if (!G.finishedOrder.includes(p.id)) G.finishedOrder.push(p.id);
@@ -1131,12 +1340,13 @@ function advanceResolutionIdx(){
     G.adrenaline.move = false;
     G.adrenaline.cooldownBonus = 0;
 
-    // Prepare React pending flags
+    // Prepare pending flags
     G._reactPending = false;
     G._slipPending = true;
     G._discardPending = true;
 
-    // If AI, auto-decide adrenaline now (still in step sequence)
+    p._movedThisReveal = true;
+    // Keep _revealPrepared true until replenish; it will be cleared in doReplenish.
   }
 
   function doAdrenaline(p){
@@ -1175,7 +1385,17 @@ function advanceResolutionIdx(){
     let cap = 0;
     if (p.gear === 1) cap += 3;
     if (p.gear === 2) cap += 1;
+    // Adrenaline adds +1 access (represented as bonus capacity)
     cap += (G.adrenaline.cooldownBonus||0);
+
+    // Upgrade cards drafted may add extra cooldown when played this turn.
+    if (p && p._upgCooldownBonus) cap += p._upgCooldownBonus;
+
+    // Weather/Road sector modifiers
+    const se = sectorEffectsForPlayer(p, 'react');
+    if (se.noCooling) return 0;
+    cap += (se.cooldownBonus||0);
+
     return cap;
   }
 
@@ -1196,16 +1416,27 @@ function advanceResolutionIdx(){
 
   function doBoost(p){
     if (p.boostUsed) return {ok:false, reason:"Boost already used."};
-    if (p.engine.length <= 0) return {ok:false, reason:"No Heat in engine to pay for Boost."};
-    // Pay 1 heat
-    payHeat(p, 1);
+
+    const se = sectorEffectsForPlayer(p, 'boost');
+    const free = !!se.boostFree;
+
+    if (!free){
+      if (p.engine.length <= 0) return {ok:false, reason:"No Heat in engine to pay for Boost."};
+      // Pay 1 heat
+      payHeat(p, 1);
+    } else {
+      // Heat Control sector: no heat cost to boost
+      log(`${p.name} boosts in Heat Control sector (no Heat paid).`);
+    }
+
     // Flip until basic
     const basic = resolveStressIntoBasic(p);
     if (!basic) return {ok:false, reason:"No cards to flip."};
-    // Add to play area? Rules: symbol adds unknown 1-4 by flipping basic and adding it to play area.
+    // Add to play area
     p.play.push(basic);
     const v = basic.value;
     G.speedForCorner += v;
+
     // Move accordingly (boost movement)
     const res = moveExact(p, v, {countCorners:true, allowFinishCross:true, forbidCrossFinish:false});
     G.cornerCrossed.push(...res.cornerCrossed);
@@ -1238,17 +1469,27 @@ function advanceResolutionIdx(){
       log(`${p.name} skips Slipstream.`);
       return;
     }
+
+    const se = sectorEffectsForPlayer(p, 'slip');
+    if (se.noSlip){
+      log(`${p.name} cannot start Slipstream in this sector (No Slipstream).`);
+      return;
+    }
+
     if (!slipEligible(p)){
       log(`${p.name} cannot Slipstream.`);
       return;
     }
-    // Slipstream move 2 spaces, but cannot cross finish line.
-    const res = moveExact(p, 2, {countCorners:true, allowFinishCross:true, forbidCrossFinish:true});
+
+    // Slipstream move (base 2) + possible sector bonus
+    const dist = 2 + (se.slipBonus||0) + (p._upgSlipBonus||0);
+
+    // Slipstream cannot cross finish line (final lap rule already enforced)
+    const res = moveExact(p, dist, {countCorners:true, allowFinishCross:true, forbidCrossFinish:true});
     if (res && res.cornerCrossed && res.cornerCrossed.length){
       G.cornerCrossed.push(...res.cornerCrossed);
     }
-    // Slipstream does NOT add to corner speed.
-    log(`${p.name} slipstreams +2 spaces.`);
+    log(`${p.name} slipstreams +${dist} space(s).`);
   }
 
   function endSlipstream(p){
@@ -1262,35 +1503,55 @@ function advanceResolutionIdx(){
       log(`${p.name} crosses no corners.`);
       return;
     }
+
     // Pay each separately in order crossed.
     for (const corner of list){
-      const limit = corner.speedLimit;
+      const baseLimit = corner.speedLimit;
       const speed = G.speedForCorner;
+
+      const adj = cornerAdjustments(corner.cornerLineIndex);
+      const limit = baseLimit + (adj.limitMod||0) + (p._upgLimitMod||0);
+
       if (speed <= limit){
-        log(`${p.name} corner @${corner.cornerLineIndex}: Speed ${speed} ≤ Limit ${limit}. OK.`);
+        if (adj.limitMod){
+          log(`${p.name} corner @${corner.cornerLineIndex}: Speed ${speed} ≤ Limit ${baseLimit} (${adj.limitMod>0?'+':'−'}${Math.abs(adj.limitMod)}) → OK.`);
+        } else {
+          log(`${p.name} corner @${corner.cornerLineIndex}: Speed ${speed} ≤ Limit ${limit}. OK.`);
+        }
         continue;
       }
-      const need = speed - limit;
+
+      // Overspeed: pay heat difference, plus Overheat modifier if present
+      let need = speed - limit;
+      if (adj.overheat) need += 1;
+
       const paid = payHeat(p, need);
       if (paid === need){
-        log(`${p.name} corner @${corner.cornerLineIndex}: Speed ${speed} > ${limit}. Pays ${need} Heat.`);
+        const extra = adj.overheat ? ' (+1 Overheat)' : '';
+        const modPieces = [];
+        if (adj.limitMod) modPieces.push(`road ${adj.limitMod>0?'+':'−'}${Math.abs(adj.limitMod)}`);
+        if (p._upgLimitMod) modPieces.push(`upgrade ${p._upgLimitMod>0?'+':'−'}${Math.abs(p._upgLimitMod)}`);
+        const modTxt = modPieces.length ? ` (limit ${baseLimit} + ${modPieces.join(' + ')} = ${limit})` : '';
+        log(`${p.name} corner @${corner.cornerLineIndex}${modTxt}: Speed ${speed} > ${limit}. Pays ${need} Heat${extra}.`);
         continue;
       }
-      // Spin out
+
+      // Spin out (cannot pay)
       log(`${p.name} corner @${corner.cornerLineIndex}: needed ${need} Heat but paid only ${paid} → SPIN OUT!`);
+
       // Move back to first available space before the corner line that caused it.
       const N = G.track.spacesCount;
       const before = (corner.cornerLineIndex - 1 + N) % N;
-      // Find first available space at or before 'before' going backward.
-      let target = before;
-      let placed = findBestSpot(target);
+
+      let placed = findBestSpot(before);
       if (!placed){
         for (let back=1; back<=N; back++){
           const j = (before - back + N) % N;
           placed = findBestSpot(j);
-          if (placed) { target = j; break; }
+          if (placed) break;
         }
       }
+
       p.pos.idx = placed.idx;
       p.pos.lane = placed.lane;
 
@@ -1299,6 +1560,7 @@ function advanceResolutionIdx(){
       addStressToHand(p, add);
       p.gear = 1;
       log(`${p.name} spins out → back to Space ${p.pos.idx}. Takes ${add} Stress into hand. Gear → 1.`);
+
       // After spin out, stop checking remaining corners.
       break;
     }
@@ -1306,17 +1568,28 @@ function advanceResolutionIdx(){
 
   function doReplenish(p){
     // Move all play area cards to discard (include any Stress-revealed Basic cards)
+    // Refresh upgrades: instead of discarding, place them back on top of the draw deck (so they cycle faster).
     if (p.play.length){
       const toDiscard = [];
+      const toRefresh = [];
       while (p.play.length){
         const c = p.play.shift();
         if (c.type === 'stress' && c.revealedCard){
           toDiscard.push(c.revealedCard);
           delete c.revealedCard;
         }
-        toDiscard.push(c);
+        // Refresh upgrades go to deck-top.
+        if (c.type === 'upgrade' && c.refresh){
+          toRefresh.push(c);
+        } else {
+          toDiscard.push(c);
+        }
       }
-      discardCards(p, toDiscard);
+      if (toDiscard.length) discardCards(p, toDiscard);
+      if (toRefresh.length){
+        for (const c of toRefresh) p.deck.push(c);
+        log(`${p.name} refreshes ${toRefresh.length} upgrade card(s) to the top of their deck.`);
+      }
     }
     // Draw back up to 7
     while (p.hand.length < 7){
@@ -1328,7 +1601,13 @@ function advanceResolutionIdx(){
     p._resolvedThisRound = true;
 
     // If finished this round, keep them flagged. Core rules remove at end of round; we keep visible but marked.
-  }
+  
+    // Clear per-reveal flags and pending UI choices (brakes)
+    p._revealPrepared = false;
+    p._revealProcessed = false;
+    p._movedThisReveal = false;
+    if (G.pendingChoice && G.pendingChoice.pid===p.id) G.pendingChoice = null;
+}
 
   /***********************
    * Discard UI action
@@ -1482,16 +1761,25 @@ function advanceResolutionIdx(){
         // move as many heat from hand as possible
         doCooldown(p, cap);
       }
-      // Boost? Only if it won't likely cause spin out (needs enough heat)
+      // Boost? Only if it won't likely cause spin out (conservative).
       const probe = nearestCornerAheadFrom(p.pos.idx, 10);
-      const limit = probe ? probe.corner.speedLimit : 99;
       const predicted = G.speedForCorner;
-      const need = Math.max(0, predicted - limit);
+      let effLimit = 99;
+      let heatNeed = 0;
+      if (probe){
+        const adj = cornerAdjustments(probe.corner.cornerLineIndex);
+        effLimit = probe.corner.speedLimit + (adj.limitMod||0);
+        heatNeed = Math.max(0, predicted - effLimit) + ((adj.overheat && predicted>effLimit)?1:0);
+      }
       // Boost increases speed; conservative: only boost if far from any corner soon
       const safe = !probe || probe.steps > 6;
-      if (!p.boostUsed && p.engine.length >= (need + 1) && safe){
+
+      const se = sectorEffectsForPlayer(p, 'boost');
+      const canPay = se.boostFree ? true : (p.engine.length >= (heatNeed + 1));
+      if (!p.boostUsed && canPay && safe){
         doBoost(p);
       }
+
       G._reactPending = false;
       G.activeStep = STEP.SLIPSTREAM;
     }
@@ -1499,9 +1787,10 @@ function advanceResolutionIdx(){
     if (G.activeStep === STEP.SLIPSTREAM){
       const can = slipEligible(p);
       if (can){
-        // Conservative: slipstream if it doesn't approach a corner too soon.
+        const se = sectorEffectsForPlayer(p, 'slip');
+        // Conservative: slipstream if it doesn't approach a corner too soon and sector allows starting it.
         const probe = nearestCornerAheadFrom(p.pos.idx, 6);
-        const doIt = !probe;
+        const doIt = (!probe) && !se.noSlip;
         doSlipstream(p, doIt);
       }
       G._slipPending = false;
@@ -1549,7 +1838,7 @@ function advanceResolutionIdx(){
   }
 
   function updatePhasePill(){
-    const map={setup:"Setup",planning:"Planning",resolution:"Resolution",finished:"Finished"};
+    const map={setup:"Setup",draft:"Garage Draft",planning:"Planning",resolution:"Resolution",finished:"Finished"};
     $('#phasePill').textContent = `Phase: ${map[G.phase]||G.phase}`;
   }
 
@@ -1564,6 +1853,45 @@ function advanceResolutionIdx(){
     document.documentElement.style.setProperty('--spaceW', $('#zoom').value + 'px');
 
     grid.innerHTML = '';
+    // Weather/Road summary banner
+    const tokEl = $('#trackTokens');
+    if (tokEl){
+      if (G.weatherRoad){
+        tokEl.style.display = '';
+        const w = G.weatherRoad.weatherToken;
+        const corners = (G.track.corners||[]).slice().sort((a,b)=>a.cornerLineIndex-b.cornerLineIndex);
+        const sectorLines = corners.map(c=>{
+          const st = (G.weatherRoad.roadSector||{})[c.cornerLineIndex];
+          if (!st) return `S${c.cornerLineIndex}→ … : (none)`;
+          return `After corner @${c.cornerLineIndex}: ${st.label}`;
+        }).join('<br>');
+        const cornerLines = corners.map(c=>{
+          const rt = (G.weatherRoad.roadCorner||{})[c.cornerLineIndex];
+          if (!rt) return `Corner @${c.cornerLineIndex}: (none)`;
+          return `Corner @${c.cornerLineIndex}: ${rt.label}`;
+        }).join('<br>');
+        tokEl.innerHTML = `
+          <div class="row" style="gap:18px">
+            <div style="min-width:170px">
+              <div class="small muted">Weather</div>
+              <div class="tokLine"><span class="pill">${escapeHtml(w.label)}</span> ${escapeHtml(w.desc||'')}</div>
+            </div>
+            <div style="flex:1">
+              <div class="small muted">Sector effects</div>
+              <div class="tokLine">${sectorLines||'(none)'}</div>
+            </div>
+            <div style="flex:1">
+              <div class="small muted">Corner tokens</div>
+              <div class="tokLine">${cornerLines||'(none)'}</div>
+            </div>
+          </div>
+        `;
+      } else {
+        tokEl.style.display = 'none';
+        tokEl.innerHTML = '';
+      }
+    }
+
     for (let i=0;i<t.spacesCount;i++){
       const space = document.createElement('div');
       space.className = 'space';
@@ -1571,6 +1899,21 @@ function advanceResolutionIdx(){
       const badges = [];
       if (i === t.finishIndex) badges.push(`<span class="badge finish">FINISH</span>`);
       if (corner) badges.push(`<span class="badge corner">CORNER ≤${corner.speedLimit}</span>`);
+      if (G.weatherRoad){
+        const rt = (G.weatherRoad.roadCorner||{})[i];
+        if (rt) badges.push(`<span class="badge road">${escapeHtml(rt.label)}</span>`);
+        // show sector token at the first space after a corner line
+        const srcCorner = (t.corners||[]).find(c=>stepForward(c.cornerLineIndex)===i);
+        if (srcCorner){
+          const st = (G.weatherRoad.roadSector||{})[srcCorner.cornerLineIndex];
+          if (st){
+            badges.push(`<span class="badge sector">${escapeHtml(st.label)}</span>`);
+            if (st.key === 'weather' && G.weatherRoad.weatherToken && G.weatherRoad.weatherToken.sectorLabel){
+              badges.push(`<span class="badge sector">${escapeHtml(G.weatherRoad.weatherToken.sectorLabel)}</span>`);
+            }
+          }
+        }
+      }
 
       space.innerHTML = `
         <div class="idx">
@@ -1620,6 +1963,15 @@ function advanceResolutionIdx(){
       turnTag.textContent = '—';
       right.innerHTML = renderSetupUI();
       hookSetupUI();
+      return;
+    }
+
+    if (G.phase === PHASE.DRAFT){
+      title.textContent = 'Garage Draft';
+      const cur = (G.draft && G.draft.currentPlayerId) ? G.players.find(x=>x.id===G.draft.currentPlayerId) : null;
+      turnTag.textContent = cur ? `Picker: ${cur.name}` : 'Draft';
+      right.innerHTML = renderDraftUI();
+      hookDraftUI();
       return;
     }
 
@@ -1762,6 +2114,39 @@ function advanceResolutionIdx(){
 
       <div class="hr"></div>
 
+      <div class="note">
+        <div class="row" style="justify-content:space-between">
+          <div>
+            <strong>Advanced Modules</strong>
+            <div class="small muted">Optional: Garage Draft (custom upgrades) and Weather/Road Conditions (sectors & corners).</div>
+          </div>
+          <div class="row">
+            <span class="tag2">${G.modules.garage?'GARAGE':'Garage off'}</span>
+            <span class="tag2">${G.modules.weatherRoad?'WEATHER/ROAD':'Weather off'}</span>
+          </div>
+        </div>
+        <div class="grid3" style="margin-top:10px">
+          <label class="small">
+            <input type="checkbox" id="modGarage" ${G.modules.garage?'checked':''}/> Garage Draft
+            <div class="muted" style="margin-top:4px">Replace starting upgrades with a 3-pick draft.</div>
+          </label>
+          <label class="small">
+            <input type="checkbox" id="modWeather" ${G.modules.weatherRoad?'checked':''}/> Weather & Road
+            <div class="muted" style="margin-top:4px">Draw 1 weather + 1 road token per corner.</div>
+          </label>
+          <label class="small">Upgrade Pool
+            <select id="upgLevel">
+              <option value="basic" ${G.modules.upgradePool==='basic'?'selected':''}>Basic (recommended)</option>
+              <option value="advanced" ${G.modules.upgradePool==='advanced'?'selected':''}>Advanced</option>
+              <option value="all" ${G.modules.upgradePool==='all'?'selected':''}>All</option>
+            </select>
+            <div class="muted" style="margin-top:4px">Pool selector is reserved for future card variety (UI only for now).</div>
+          </label>
+        </div>
+      </div>
+
+      <div class="hr"></div>
+
       <div class="row" style="justify-content:space-between">
         <div class="note" style="flex:1">
           <strong>Ready?</strong>
@@ -1788,6 +2173,26 @@ function advanceResolutionIdx(){
         if (act === 'applyTrackBasics') { pushHistory('Apply track basics'); applyTrackBasics(); renderAll(); }
         if (act === 'setSeed') { pushHistory('Set seed'); setSeedFromInput(); renderAll(); }
       });
+    });
+
+    // Advanced module toggles
+    const cbGarage = $('#modGarage');
+    if (cbGarage) cbGarage.addEventListener('change', ()=>{
+      pushHistory('Toggle Garage Draft');
+      G.modules.garage = cbGarage.checked;
+      renderAll();
+    });
+    const cbWeather = $('#modWeather');
+    if (cbWeather) cbWeather.addEventListener('change', ()=>{
+      pushHistory('Toggle Weather/Road');
+      G.modules.weatherRoad = cbWeather.checked;
+      renderAll();
+    });
+    const selPool = $('#upgLevel');
+    if (selPool) selPool.addEventListener('change', ()=>{
+      pushHistory('Change Upgrade Pool');
+      G.modules.upgradePool = selPool.value;
+      renderAll();
     });
 
     // Remove player
@@ -1823,6 +2228,658 @@ function advanceResolutionIdx(){
       });
     });
   }
+
+  
+  /***********************
+   * Advanced Modules: Garage Draft + Weather/Road
+   ***********************/
+  const WEATHER_SETUP_EFFECTS = [
+    {key:'addStressShuffle', label:'Shuffle 1 extra Stress card into your deck', apply(p){ p.deck.push(makeStressCards(1,p.color)[0]); shuffleInPlace(p.deck, rng); }},
+    {key:'removeStress', label:'Remove 1 Stress card from your deck', apply(p){ const i=p.deck.findIndex(c=>c && c.type==='stress'); if(i>=0) p.deck.splice(i,1); }},
+    {key:'addHeatEngine', label:'Place 1 extra Heat card in your Engine', apply(p){ p.engine.push(...makeHeatCards(1,p.color)); }},
+    {key:'removeHeatEngine', label:'Remove 1 Heat card from your Engine', apply(p){ if(p.engine.length) p.engine.pop(); }},
+    {key:'shuffleHeat3', label:'Shuffle 3 Heat cards from engine into your draw deck', apply(p){ const n=Math.min(3,p.engine.length); const moved=p.engine.splice(0,n); for(const c of moved){ p.deck.push(c); } shuffleInPlace(p.deck, rng); }},
+    {key:'discardHeat3', label:'Place 3 Heat cards from engine into your discard pile', apply(p){ const n=Math.min(3,p.engine.length); const moved=p.engine.splice(0,n); discardCards(p,moved); }},
+  ];
+
+  const WEATHER_SECTOR_EFFECTS = [
+    {key:'slipPlus2', label:'Slipstream boost (+2 extra spaces)', effect(p){ return {slipBonus:2}; }},
+    {key:'noSlip', label:'No slipstream (cannot start here)', effect(p){ return {noSlip:true}; }},
+    {key:'coolingBonus', label:'Cooling Bonus (+1 Cooldown)', effect(p){ return {cooldownBonus:1}; }},
+    {key:'noCooling', label:'No cooling (Cooldown not allowed)', effect(p){ return {noCooling:true}; }},
+  ];
+
+  function initWeatherRoadIfEnabled(){
+    if (!G.modules.weatherRoad) { G.weatherRoad = null; return; }
+    const corners = (G.track.corners||[]).slice().sort((a,b)=>a.cornerLineIndex-b.cornerLineIndex);
+    if (!corners.length){
+      // Still allow weather setup even without corners
+      corners.push({cornerLineIndex: Math.floor(G.track.spacesCount/2), speedLimit: 7});
+      G.track.corners = corners;
+    }
+    // Choose one of 6 weather tokens (fixed setup effects, sector effects cycle)
+    const ws = WEATHER_SETUP_EFFECTS.slice();
+    shuffleInPlace(ws, rng);
+    const we = WEATHER_SECTOR_EFFECTS.slice();
+    shuffleInPlace(we, rng);
+    const weatherToken = {
+      id: uid('w'),
+      setupKey: ws[0].key,
+      setupLabel: ws[0].label,
+      sectorKey: we[0].key,
+      sectorLabel: we[0].label
+    };
+
+    // Build 12 road tokens (6 corner tokens + 6 sector tokens)
+    const roadTokens = [];
+    const mk = (kind, key, label, mandatory) => ({id: uid('rt'), kind, key, label, mandatory: !!mandatory});
+    // Corner tokens (duplicate each twice)
+    for (let i=0;i<2;i++){
+      roadTokens.push(mk('corner','limitPlus','Speed Limit +1', true));
+      roadTokens.push(mk('corner','limitMinus','Speed Limit -1', true));
+      roadTokens.push(mk('corner','overheat','Overheat (+1 Heat cost if overspeed)', true));
+    }
+    // Sector tokens (duplicate each twice)
+    for (let i=0;i<2;i++){
+      roadTokens.push(mk('sector','slipPlus1','Slipstream boost (+1 extra space)', false));
+      roadTokens.push(mk('sector','heatControl','Heat control (Boost costs 0 Heat here)', false));
+      roadTokens.push(mk('sector','weather','Weather applies in this sector', false));
+    }
+    shuffleInPlace(roadTokens, rng);
+
+    const roadCorner = {};
+    const roadSector = {};
+
+    for (let i=0;i<corners.length;i++){
+      const c = corners[i];
+      const tok = roadTokens.pop();
+      if (tok.kind === 'corner'){
+        roadCorner[c.cornerLineIndex] = tok;
+      } else {
+        // sector token applies to sector after this corner line until next corner
+        roadSector[c.cornerLineIndex] = tok;
+      }
+    }
+
+    // Precompute sectors
+    const sectors = [];
+    for (let i=0;i<corners.length;i++){
+      const start = corners[i].cornerLineIndex;
+      const end = corners[(i+1)%corners.length].cornerLineIndex;
+      const wrap = end <= start;
+      sectors.push({start, end, wrap, token: roadSector[start] || null});
+    }
+
+    G.weatherRoad = {enabled:true, weatherToken, roadCorner, roadSector, corners, sectors};
+    log(`Weather/Road enabled: Weather = ${weatherToken.setupLabel} • Sector effect = ${weatherToken.sectorLabel}.`);
+    // brief road summary
+    const csum = corners.map(c=>{
+      const t = roadCorner[c.cornerLineIndex] || roadSector[c.cornerLineIndex];
+      return t ? `@${c.cornerLineIndex}:${t.kind==='corner'?'Corner':'Sector'}(${t.label})` : `@${c.cornerLineIndex}:—`;
+    }).join(' | ');
+    log(`Road Conditions: ${csum}`);
+  }
+
+  function applyWeatherSetupToAllPlayers(){
+    if (!G.weatherRoad) return;
+    const tok = G.weatherRoad.weatherToken;
+    const rule = WEATHER_SETUP_EFFECTS.find(x=>x.key===tok.setupKey);
+    if (!rule) return;
+    for (const p of G.players){
+      if (p.finished) continue;
+      rule.apply(p);
+    }
+  }
+
+  function sectorForIdx(idx){
+    if (!G.weatherRoad || !G.weatherRoad.sectors) return null;
+    for (const s of G.weatherRoad.sectors){
+      if (!s.wrap){
+        if (idx > s.start && idx <= s.end) return s; // between cornerLine and next cornerLine inclusive of end
+      } else {
+        if (idx > s.start || idx <= s.end) return s;
+      }
+    }
+    return null;
+  }
+
+  function sectorEffectsForPlayer(p, when){
+    // when: 'react' | 'boost' | 'slip'
+    const out = {slipBonus:0, noSlip:false, boostFree:false, cooldownBonus:0, noCooling:false};
+    if (!G.weatherRoad) return out;
+    const s = sectorForIdx(p.pos.idx);
+    if (s && s.token){
+      if (s.token.key === 'slipPlus1') out.slipBonus += 1;
+      if (s.token.key === 'heatControl') out.boostFree = true;
+      if (s.token.key === 'weather'){
+        const w = WEATHER_SECTOR_EFFECTS.find(x=>x.key===G.weatherRoad.weatherToken.sectorKey);
+        if (w){
+          const eff = w.effect(p);
+          if (eff.slipBonus) out.slipBonus += eff.slipBonus;
+          if (eff.noSlip) out.noSlip = true;
+          if (eff.cooldownBonus) out.cooldownBonus += eff.cooldownBonus;
+          if (eff.noCooling) out.noCooling = true;
+        }
+      }
+    }
+    return out;
+  }
+
+  function cornerAdjustments(cornerLineIndex){
+    if (!G.weatherRoad) return {limitMod:0, overheat:false};
+    const tok = G.weatherRoad.roadCorner[cornerLineIndex];
+    if (!tok) return {limitMod:0, overheat:false};
+    if (tok.key === 'limitPlus') return {limitMod: +1, overheat:false};
+    if (tok.key === 'limitMinus') return {limitMod: -1, overheat:false};
+    if (tok.key === 'overheat') return {limitMod: 0, overheat:true};
+    return {limitMod:0, overheat:false};
+  }
+
+  
+  // Garage Draft (3 upgrades each; hotseat) — implemented per Advanced Play booklet:
+  // 3 rounds of drafting; each round: market = (players + 3) face-up cards; everyone takes 1 in order; discard leftovers; new market next round.
+  // (We implement an offline-friendly approximation of the full Upgrade decks: Basic = 34 cards (17×2); Advanced = 62 cards (20×3 + 2 extras).)
+
+  const UPGRADE_DEFS = [
+    // --- Basic (1–17) ---
+    {num:1,  lvl:'basic', name:'4 Wheel Drive', speed:4, plus:1, cooldown:0, reduceStress:0, slipBonus:0, payHeat:0, choices:null, limitMod:0, overheat:false},
+    {num:2,  lvl:'basic', name:'4 Wheel Drive', speed:0, plus:3, cooldown:0, reduceStress:0, slipBonus:0, payHeat:0, choices:null, limitMod:0, overheat:false},
+    {num:3,  lvl:'basic', name:'4 Wheel Drive', speed:0, plus:1, cooldown:3, reduceStress:0, slipBonus:0, payHeat:0, choices:null, limitMod:0, overheat:false},
+    {num:4,  lvl:'basic', name:'Bodywork',     speed:3, plus:0, cooldown:0, reduceStress:2, slipBonus:0, payHeat:0, choices:null, limitMod:0, overheat:false},
+    {num:5,  lvl:'basic', name:'Bodywork',     speed:5, plus:0, cooldown:0, reduceStress:1, slipBonus:0, payHeat:0, choices:null, limitMod:0, overheat:false},
+    {num:6,  lvl:'basic', name:'Bodywork',     speed:1, plus:0, cooldown:0, reduceStress:3, slipBonus:0, payHeat:0, choices:null, limitMod:0, overheat:false},
+    {num:7,  lvl:'basic', name:'Brakes',       speed:null, plus:0, cooldown:0, reduceStress:0, slipBonus:0, payHeat:1, choices:[1,2,3,4], limitMod:0, overheat:false},
+    {num:8,  lvl:'basic', name:'Brakes',       speed:null, plus:0, cooldown:0, reduceStress:0, slipBonus:0, payHeat:0, choices:[1,3],     limitMod:0, overheat:false},
+    {num:9,  lvl:'basic', name:'Brakes',       speed:null, plus:0, cooldown:0, reduceStress:0, slipBonus:0, payHeat:0, choices:[2,4],     limitMod:0, overheat:false},
+    {num:10, lvl:'basic', name:'Brakes',       speed:null, plus:0, cooldown:0, reduceStress:0, slipBonus:0, payHeat:0, choices:[1,5],     limitMod:0, overheat:false},
+    {num:11, lvl:'basic', name:'Cooling System', speed:6, plus:0, cooldown:1, reduceStress:0, slipBonus:0, payHeat:1, choices:null, limitMod:0, overheat:false},
+    {num:12, lvl:'basic', name:'Cooling System', speed:1, plus:0, cooldown:2, reduceStress:0, slipBonus:0, payHeat:0, choices:null, limitMod:0, overheat:false},
+    {num:13, lvl:'basic', name:'Cooling System', speed:3, plus:0, cooldown:1, reduceStress:0, slipBonus:0, payHeat:0, choices:null, limitMod:0, overheat:false},
+    {num:14, lvl:'basic', name:'R.P.M.',       speed:1, plus:0, cooldown:0, reduceStress:0, slipBonus:1, payHeat:0, choices:null, limitMod:0, overheat:false},
+    {num:15, lvl:'basic', name:'R.P.M.',       speed:2, plus:0, cooldown:0, reduceStress:0, slipBonus:2, payHeat:0, choices:null, limitMod:0, overheat:false},
+    {num:16, lvl:'basic', name:'R.P.M.',       speed:3, plus:0, cooldown:0, reduceStress:0, slipBonus:2, payHeat:0, choices:null, limitMod:0, overheat:false},
+    {num:17, lvl:'basic', name:'Heat',         speed:0, plus:0, cooldown:0, reduceStress:0, slipBonus:0, payHeat:0, choices:null, limitMod:0, overheat:false, behavesLikeHeat:true},
+
+    // --- Advanced (18–37) --- (partial implementation of extra icons; enough for drafting + speed + corner-relevant effects)
+    {num:18, lvl:'adv', name:'Bodywork', speed:6, plus:0, cooldown:0, reduceStress:3, slipBonus:0, payHeat:1, choices:null, limitMod:0, overheat:false, scrap:0},
+    {num:19, lvl:'adv', name:'Bodywork', speed:2, plus:0, cooldown:0, reduceStress:1, slipBonus:0, payHeat:0, choices:null, limitMod:0, overheat:false, scrap:2},
+    {num:20, lvl:'adv', name:'Bodywork', speed:2, plus:0, cooldown:0, reduceStress:1, slipBonus:1, payHeat:0, choices:null, limitMod:0, overheat:false, scrap:0},
+    {num:21, lvl:'adv', name:'Cooling System', speed:4, plus:0, cooldown:1, reduceStress:0, slipBonus:0, payHeat:0, choices:null, limitMod:0, overheat:false, scrap:2},
+    {num:22, lvl:'adv', name:'Fuel', speed:2, plus:0, cooldown:0, reduceStress:0, slipBonus:0, payHeat:0, choices:null, limitMod:0, overheat:false, salvage:2},
+    {num:23, lvl:'adv', name:'Fuel', speed:0, plus:1, cooldown:1, reduceStress:0, slipBonus:0, payHeat:0, choices:null, limitMod:0, overheat:false, salvage:2},
+    {num:24, lvl:'adv', name:'Gas Pedal', speed:1, plus:0, cooldown:0, reduceStress:0, slipBonus:0, payHeat:0, choices:null, limitMod:0, overheat:false, scrap:1, directPlay:true},
+    {num:25, lvl:'adv', name:'Gas Pedal', speed:2, plus:0, cooldown:0, reduceStress:0, slipBonus:0, payHeat:0, choices:null, limitMod:0, overheat:false, scrap:2, directPlay:true},
+    {num:26, lvl:'adv', name:'Gas Pedal', speed:3, plus:0, cooldown:0, reduceStress:0, slipBonus:0, payHeat:0, choices:null, limitMod:0, overheat:false, scrap:3, directPlay:true},
+    {num:27, lvl:'adv', name:'Gas Pedal', speed:4, plus:0, cooldown:1, reduceStress:0, slipBonus:0, payHeat:1, choices:null, limitMod:0, overheat:false, scrap:0, directPlay:true},
+    {num:28, lvl:'adv', name:'Gas Pedal', speed:1, plus:0, cooldown:0, reduceStress:0, slipBonus:0, payHeat:0, choices:null, limitMod:0, overheat:false, scrap:5, accelerate:true, directPlay:true},
+    {num:29, lvl:'adv', name:'R.P.M.', speed:0, plus:1, cooldown:0, reduceStress:0, slipBonus:3, payHeat:0, choices:null, limitMod:0, overheat:false},
+    {num:30, lvl:'adv', name:'R.P.M.', speed:1, plus:0, cooldown:0, reduceStress:0, slipBonus:3, payHeat:1, choices:null, limitMod:0, overheat:false},
+    {num:31, lvl:'adv', name:'R.P.M.', speed:null, plus:0, cooldown:0, reduceStress:0, slipBonus:1, payHeat:0, choices:[1,2], limitMod:0, overheat:false},
+    {num:32, lvl:'adv', name:'Suspension', speed:2, plus:0, cooldown:0, reduceStress:1, slipBonus:0, payHeat:0, choices:null, limitMod:0, overheat:false, refresh:true},
+    {num:33, lvl:'adv', name:'Suspension', speed:2, plus:0, cooldown:1, reduceStress:0, slipBonus:0, payHeat:0, choices:null, limitMod:0, overheat:false, refresh:true},
+    {num:34, lvl:'adv', name:'Suspension', speed:4, plus:0, cooldown:0, reduceStress:0, slipBonus:0, payHeat:0, choices:null, limitMod:0, overheat:false, refresh:true},
+    {num:35, lvl:'adv', name:'Suspension', speed:1, plus:0, cooldown:0, reduceStress:0, slipBonus:1, payHeat:0, choices:null, limitMod:0, overheat:false, refresh:true},
+    {num:36, lvl:'adv', name:'Tyres', speed:2, plus:0, cooldown:3, reduceStress:0, slipBonus:0, payHeat:0, choices:null, limitMod:-1, overheat:false},
+    {num:37, lvl:'adv', name:'Tyres', speed:1, plus:0, cooldown:0, reduceStress:0, slipBonus:0, payHeat:0, choices:null, limitMod:+1, overheat:false, scrap:2},
+  ];
+
+  function buildUpgradeDeck(){
+    const level = (G.modules && G.modules.upgradePool) ? G.modules.upgradePool : 'basic';
+    const defsBasic = UPGRADE_DEFS.filter(d=>d.lvl==='basic');
+    const defsAdv = UPGRADE_DEFS.filter(d=>d.lvl==='adv');
+
+    let pool = [];
+    if (level === 'basic'){
+      for (const d of defsBasic){
+        for (let k=0;k<2;k++) pool.push(makeUpgradeCardFromDef(d, k));
+      }
+    } else if (level === 'advanced'){
+      for (const d of defsAdv){
+        for (let k=0;k<3;k++) pool.push(makeUpgradeCardFromDef(d, k));
+      }
+      // pad to 62 with two extra random ones
+      if (pool.length < 62){
+        const extra = defsAdv.slice(0,2);
+        for (let i=0;i<62-pool.length;i++){
+          pool.push(makeUpgradeCardFromDef(extra[i%extra.length], 99+i));
+        }
+      }
+    } else { // all
+      // Basic 34 + Advanced 62
+      for (const d of defsBasic){ for (let k=0;k<2;k++) pool.push(makeUpgradeCardFromDef(d, k)); }
+      for (const d of defsAdv){ for (let k=0;k<3;k++) pool.push(makeUpgradeCardFromDef(d, k)); }
+      if (pool.length < (34+62)){
+        const extra = defsAdv.slice(0,2);
+        for (let i=0;i<(34+62)-pool.length;i++){
+          pool.push(makeUpgradeCardFromDef(extra[i%extra.length], 199+i));
+        }
+      }
+    }
+    shuffleInPlace(pool, rng);
+    return pool;
+  }
+
+  function makeUpgradeCardFromDef(def, copyIdx){
+    // If this upgrade is "Heat", represent it as an actual Heat card that clogs hand and cannot be played.
+    if (def.behavesLikeHeat){
+      const c = makeHeatCards(1, '#888')[0];
+      c.id = uid('uH');
+      c.origin = 'upgrade';
+      c.upgNum = def.num;
+      c.upgName = def.name;
+      c.label = `Upgrade ${def.num}: ${def.name}`;
+      return c;
+    }
+    const c = {
+      id: uid('upg'),
+      type: 'upgrade',
+      upgNum: def.num,
+      upgLevel: def.lvl,
+      name: def.name,
+      value: (typeof def.speed === 'number') ? def.speed : 0,
+      choices: def.choices ? def.choices.slice() : null,
+      chosen: null,
+      plus: def.plus || 0,
+      plusCards: [], // cards flipped for + symbols
+      cool: def.cooldown || 0,
+      reduceStress: def.reduceStress || 0,
+      slipBonus: def.slipBonus || 0,
+      payHeatCost: def.payHeat || 0,
+      scrap: def.scrap || 0,
+      limitMod: def.limitMod || 0,
+      refresh: !!def.refresh,
+      salvage: def.salvage || 0,
+      directPlay: !!def.directPlay,
+      accelerate: !!def.accelerate,
+      label: `Upgrade ${def.num}: ${def.name}`
+    };
+    return c;
+  }
+
+  function initGarageDraft(){
+    if (!G.modules.garage) { G.draft = null; return; }
+
+    const pool = buildUpgradeDeck();
+    const nPlayers = G.players.filter(p=>!p.finished).length;
+
+    const d = {
+      enabled:true,
+      round:1,
+      pool,
+      discards:[],
+      market:[],
+      order:[],
+      pickerIdx:0,
+      pickedThisRound:0,
+      picks:{}
+    };
+    for (const p of G.players){
+      d.picks[p.id] = [];
+    }
+
+    function reshuffleIfNeeded(){
+      if (d.pool.length === 0 && d.discards.length){
+        d.pool = d.discards.splice(0, d.discards.length);
+        shuffleInPlace(d.pool, rng);
+      }
+    }
+
+    function dealMarket(){
+      d.market = [];
+      reshuffleIfNeeded();
+      const want = nPlayers + 3;
+      for (let i=0;i<want;i++){
+        if (d.pool.length === 0){
+          reshuffleIfNeeded();
+        }
+        if (d.pool.length === 0) break;
+        d.market.push(d.pool.pop());
+      }
+    }
+
+    function setOrderForRound(){
+      const cars = sortedCars(true, false); // front to back on grid
+      if (d.round === 2){
+        // front to back
+        d.order = cars.map(p=>p.id);
+      } else {
+        // back to front
+        d.order = cars.slice().reverse().map(p=>p.id);
+      }
+      d.pickerIdx = 0;
+      d.pickedThisRound = 0;
+    }
+
+    dealMarket();
+    setOrderForRound();
+
+    d.currentPlayerId = d.order[d.pickerIdx];
+
+    G.draft = d;
+    G.phase = PHASE.DRAFT;
+    log(`Garage Draft begins: Round 1/3. Market size ${d.market.length} (players+3). Picker order: ${d.order.map(id=>pidToName(id)).join(' → ')}`);
+  }
+
+  function pidToName(pid){
+    const p = G.players.find(x=>x.id===pid);
+    return p ? p.name : pid;
+  }
+
+  function fmtUpgradeCardShort(c){
+    if (!c) return '—';
+    if (c.type==='heat' && c.origin==='upgrade') return `U${c.upgNum} Heat`;
+    if (c.type!=='upgrade') return fmtCard(c);
+    const plus = c.plus ? (' ' + '＋'.repeat(c.plus)) : '';
+    const choice = c.choices ? ` [${c.choices.join('/')}]` : '';
+    const icons = [];
+    if (c.payHeatCost) icons.push(`Heat${c.payHeatCost}`);
+    if (c.scrap) icons.push(`Scrap${c.scrap}`);
+    if (c.limitMod) icons.push(`Limit${c.limitMod>0?'+':''}${c.limitMod}`);
+    if (c.cool) icons.push(`Cool${c.cool}`);
+    if (c.reduceStress) icons.push(`-Stress${c.reduceStress}`);
+    if (c.slipBonus) icons.push(`Slip+${c.slipBonus}`);
+    if (c.refresh) icons.push(`Refresh`);
+    if (c.directPlay) icons.push(`Direct`);
+    if (c.salvage) icons.push(`Salvage${c.salvage}`);
+    if (c.accelerate) icons.push(`Accel`);
+    return `U${c.upgNum} ${c.name}${choice} ${c.value}${plus}${icons.length?' • '+icons.join(', '):''}`.trim();
+  }
+
+  
+  function renderDraftUI(){
+    const d = G.draft;
+    if (!d) return `<div class="muted">Draft not initialized.</div>`;
+    const current = G.players.find(p=>p.id===d.currentPlayerId);
+    if (!current) return `<div class="muted">Draft error: no current player.</div>`;
+    const picks = d.picks[current.id]||[];
+    return `
+      <div class="panel" style="margin-top:10px">
+        <div class="row">
+          <div style="font-weight:800">Garage Draft</div>
+          <div class="small">Round ${d.round}/3 • Picker: <span class="pill">${escapeHtml(current.name)}</span> • Pick ${picks.length+1}/3</div>
+        </div>
+        <div class="small muted" style="margin-top:6px">
+          Each round: pick 1 card (in order), then discard the remaining market and deal a fresh market.
+        </div>
+
+        <div class="row" style="margin-top:10px">
+          <div class="small muted">Market</div>
+          <div class="small muted">Deck ${d.pool.length} • Discard ${d.discards.length}</div>
+        </div>
+
+        <div class="market" id="marketGrid">
+          ${d.market.map(c=>`<button class="cardBtn" data-act="pickUpg" data-id="${c.id}" ${current.isAI?'disabled':''} title="${escapeHtml(fmtUpgradeCardShort(c))}">
+              <div class="cardFace">
+                <div class="cardTitle">${escapeHtml(c.type==='upgrade' ? `U${c.upgNum} ${c.name}` : `U${c.upgNum||''} Heat`)}</div>
+                <div class="cardBody">${escapeHtml(upgradeCardFaceText(c))}</div>
+              </div>
+            </button>`).join('')}
+        </div>
+
+        <div class="row" style="margin-top:10px">
+          <div class="small muted">Your picks</div>
+          <div class="small muted">${escapeHtml(picks.map(fmtUpgradeCardShort).join(' • ') || '—')}</div>
+        </div>
+
+        <div class="row" style="margin-top:10px">
+          <button class="btn" id="btnDraftAuto" ${current.isAI?'disabled':''}>Auto-pick for me</button>
+          <button class="btn" id="btnDraftForceFinish" title="Emergency: fill missing picks randomly (for debugging).">Force finish draft</button>
+        </div>
+      </div>
+    `;
+  }
+
+
+function upgradeCardFaceText(c){
+    if (!c) return '';
+    if (c.type==='heat' && c.origin==='upgrade') return 'Acts as a Heat card (clogs hand).';
+    if (c.type!=='upgrade') return '';
+    const parts=[];
+    if (c.choices) parts.push(`Speed: ${c.choices.join(' or ')}`);
+    else parts.push(`Speed: ${c.value||0}`);
+    if (c.plus) parts.push(`Boost symbol(s): ${c.plus}`);
+    if (c.payHeatCost) parts.push(`Pay Heat: ${c.payHeatCost}`);
+    if (c.scrap) parts.push(`Scrap: ${c.scrap}`);
+    if (c.limitMod) parts.push(`Corner limit ${c.limitMod>0?'+':''}${c.limitMod} this turn`);
+    if (c.cool) parts.push(`Cooldown: ${c.cool}`);
+    if (c.reduceStress) parts.push(`Discard Stress: ${c.reduceStress}`);
+    if (c.slipBonus) parts.push(`Slipstream +${c.slipBonus}`);
+    if (c.refresh) parts.push(`Refresh (keep)`);
+    if (c.directPlay) parts.push(`Direct Play`);
+    if (c.salvage) parts.push(`Salvage: ${c.salvage}`);
+    if (c.accelerate) parts.push(`Accelerate`);
+    return parts.join('\n');
+  }
+
+  function hookDraftUI(){
+    const d = G.draft;
+    if (!d) return;
+    const current = G.players.find(p=>p.id===d.currentPlayerId);
+    const market = $('#marketGrid');
+
+    if (market){
+      $$('[data-act="pickUpg"]', market).forEach(btn=>{
+        btn.addEventListener('click', ()=>{
+          const cid = btn.getAttribute('data-id');
+          draftPick(cid, false);
+        });
+      });
+    }
+
+    const auto = $('#btnDraftAuto');
+    if (auto){
+      auto.addEventListener('click', ()=>{
+        draftPick(null, true);
+      });
+    }
+    const force = $('#btnDraftForceFinish');
+    if (force){
+      force.addEventListener('click', ()=>{
+        pushHistory('Force finish draft');
+        while (G.draft){
+          const d2 = G.draft;
+          const cur = G.players.find(p=>p.id===d2.currentPlayerId);
+          if (!cur) break;
+          const picks = d2.picks[cur.id]||[];
+          if (picks.length>=3){
+            // move to next
+            advanceDraftPicker();
+            continue;
+          }
+          // pick random
+          draftPick(null, true);
+        }
+      });
+    }
+
+    // If current picker is AI, auto-pick
+    if (current && current.isAI){
+      if (!d._aiPicking){
+        d._aiPicking = true;
+        setTimeout(()=>{ d._aiPicking = false; draftPick(null,true); }, 120);
+      }
+    }
+  }
+
+  function draftPick(cardId, auto){
+    const d = G.draft;
+    if (!d) return;
+    const pid = d.currentPlayerId;
+    const p = G.players.find(x=>x.id===pid);
+    if (!p) return;
+
+    const picks = d.picks[pid] || (d.picks[pid]=[]);
+    if (picks.length >= 3){
+      advanceDraftPicker();
+      return;
+    }
+
+    let chosen = null;
+    if (cardId){
+      const i = d.market.findIndex(c=>c.id===cardId);
+      if (i>=0) chosen = d.market.splice(i,1)[0];
+    }
+    if (!chosen){
+      // AI / auto: pick the best by heuristic (prefer cooldown if heat clogs, prefer slip/limit mods, avoid upgrade-heat)
+      chosen = chooseUpgradeFromMarket(p, d.market);
+      const i = d.market.findIndex(c=>c.id===chosen.id);
+      if (i>=0) d.market.splice(i,1);
+    }
+
+    if (!chosen){
+      // Shouldn't happen; if market empty, rebuild it.
+      log(`Draft warning: market empty. Re-dealing market.`);
+      dealNewMarketAndContinue();
+      return;
+    }
+
+    picks.push(chosen);
+    log(`${p.name} drafts ${fmtUpgradeCardShort(chosen)}.`);
+
+    d.pickedThisRound++;
+
+    // Move to next picker within this round, or end round when everyone picked
+    if (d.pickedThisRound >= G.players.filter(x=>!x.finished).length){
+      // discard leftovers
+      if (d.market.length){
+        d.discards.push(...d.market.splice(0, d.market.length));
+      }
+      d.round++;
+      if (d.round <= 3){
+        dealNewMarketAndContinue();
+      } else {
+        finalizeDraftAndStart();
+      }
+      return;
+    }
+
+    advanceDraftPicker();
+  }
+
+  function dealNewMarketAndContinue(){
+    const d = G.draft;
+    if (!d) return;
+
+    // Deal new market (players+3)
+    const nPlayers = G.players.filter(p=>!p.finished).length;
+
+    if (d.pool.length === 0 && d.discards.length){
+      d.pool = d.discards.splice(0, d.discards.length);
+      shuffleInPlace(d.pool, rng);
+    }
+
+    d.market = [];
+    for (let i=0;i<nPlayers+3;i++){
+      if (d.pool.length === 0){
+        if (d.discards.length){
+          d.pool = d.discards.splice(0, d.discards.length);
+          shuffleInPlace(d.pool, rng);
+        }
+      }
+      if (d.pool.length === 0) break;
+      d.market.push(d.pool.pop());
+    }
+
+    // Set pick order for round
+    const cars = sortedCars(true, false); // front to back
+    d.order = (d.round === 2) ? cars.map(p=>p.id) : cars.slice().reverse().map(p=>p.id);
+    d.pickerIdx = 0;
+    d.pickedThisRound = 0;
+    d.currentPlayerId = d.order[d.pickerIdx];
+
+    log(`Draft Round ${d.round}/3 begins. Picker order: ${d.order.map(pidToName).join(' → ')}`);
+    renderAll();
+    hookDraftUI();
+  }
+
+  function advanceDraftPicker(){
+    const d = G.draft;
+    if (!d) return false;
+
+    const order = d.order || [];
+    const n = order.length;
+    if (!n){
+      // No order? force finalize safeguards
+      finalizeDraftAndStart();
+      return false;
+    }
+
+    // Find next player in order who still needs picks (<3).
+    for (let step=0; step<n; step++){
+      d.pickerIdx = (d.pickerIdx + 1) % n;
+      const pid = order[d.pickerIdx];
+      const picks = d.picks[pid] || [];
+      if (picks.length < 3){
+        d.currentPlayerId = pid;
+        renderAll();
+        hookDraftUI();
+        return true;
+      }
+    }
+
+    // Everyone already has 3 picks — finalize the draft.
+    finalizeDraftAndStart();
+    return false;
+  }
+
+  function chooseUpgradeFromMarket(p, market){
+    if (!market || !market.length) return null;
+
+    const upcomingCorners = (G.track.corners||[]).slice().sort((a,b)=>a.cornerLineIndex-b.cornerLineIndex);
+    const heatInHand = p.hand && p.hand.some(c=>c.type==='heat');
+    function score(c){
+      if (c.type==='heat' && c.origin==='upgrade') return -50;
+      if (c.type!=='upgrade') return 0;
+      let s = 0;
+      s += (c.value||0);
+      s += (c.plus||0)*1.2;
+      s += (c.cool||0) * (heatInHand?2.0:1.0);
+      s += (c.reduceStress||0) * 0.6;
+      s += (c.slipBonus||0) * 0.7;
+      s += Math.abs(c.limitMod||0) * 0.8;
+      // penalize mandatory heat costs if engine low at start
+      s -= (c.payHeatCost||0) * (p.engine && p.engine.length<3 ? 1.2 : 0.6);
+      // penalize heavy scrap early
+      s -= (c.scrap||0) * 0.2;
+      return s + (rng()*0.001);
+    }
+    return market.slice().sort((a,b)=>score(b)-score(a))[0];
+  }
+
+  function finalizeDraftAndStart(){
+    const d = G.draft;
+    if (!d) return;
+
+    // Ensure everyone has 3 picks (fail-safe)
+    const live = G.players.filter(p=>!p.finished);
+    for (const p of live){
+      while ((d.picks[p.id]||[]).length < 3){
+        // pull from market then pool
+        let c = d.market.pop();
+        if (!c) c = d.pool.pop();
+        if (!c){
+          if (d.discards.length){
+            d.pool = d.discards.splice(0, d.discards.length);
+            shuffleInPlace(d.pool, rng);
+            c = d.pool.pop();
+          }
+        }
+        if (!c) break;
+        (d.picks[p.id]||[]).push(c);
+      }
+    }
+
+    for (const p of live){
+      const picks = d.picks[p.id] || [];
+      p.deck.push(...picks);
+      shuffleInPlace(p.deck, rng);
+    }
+    // leftovers are discarded (ignored)
+    G.draft = null;
+    log('Garage Draft complete. Each player has 3 Upgrade cards shuffled into their deck.');
+    finalizeStartRaceIntoPlanning();
+  }
+
 
   function applyTrackBasics(){
     const spaces = parseInt($('#trkSpaces').value,10);
@@ -1896,13 +2953,25 @@ function advanceResolutionIdx(){
     if (G.players.length < 1){ toast('Add at least 1 player.'); return; }
     pushHistory('Start race');
 
-    // Build real player objects with decks
+    // Capture module toggles (in case user didn't trigger change event)
+    const cbG = $('#modGarage'); if (cbG) G.modules.garage = !!cbG.checked;
+    const cbW = $('#modWeather'); if (cbW) G.modules.weatherRoad = !!cbW.checked;
+    const selU = $('#upgLevel'); if (selU) G.modules.upgradePool = selU.value;
+
+    // Build player objects WITHOUT initial draw (so weather/draft can modify the deck first)
     const heat = clamp(parseInt($('#cfgHeat').value||6,10), 0, 12);
     const stress = clamp(parseInt($('#cfgStress').value||3,10), 0, 8);
     const built=[];
     for (const p0 of G.players){
-      const p = makePlayer({name:p0.name, color:p0.color, isAI:p0.isAI, heatInEngine:heat, stressInDeck:stress});
-      // position will be set by grid
+      const p = makePlayer({
+        name:p0.name,
+        color:p0.color,
+        isAI:p0.isAI,
+        heatInEngine:heat,
+        stressInDeck:stress,
+        useStartingUpgrades: !G.modules.garage,
+        drawStartHand:false
+      });
       built.push(p);
     }
     G.players = built;
@@ -1911,10 +2980,47 @@ function advanceResolutionIdx(){
     // Place grid (random order by default)
     randomizeStartingGrid();
 
+    // Prepare weather/road before draft so players could (in real game) draft accordingly.
+    initWeatherRoadIfEnabled();
+    applyWeatherSetupToAllPlayers();
+
+    // If Garage Draft enabled, run draft first.
+    if (G.modules.garage){
+      initGarageDraft();
+      renderAll();
+      return;
+    }
+
+    // Otherwise, proceed to planning.
+    finalizeStartRaceIntoPlanning();
+  }
+
+  function drawStartingHands(){
+    for (const p of G.players){
+      p.hand = [];
+      p.play = [];
+      // Draw 7
+      for (let i=0;i<7;i++){
+        const c = drawFromDeck(p, {allowReshuffle:true});
+        if (!c) break;
+        p.hand.push(c);
+      }
+      p.publicTopDiscard = topOf(p.discard);
+      p.boostUsed = false;
+      p.planned = {gearTarget: p.gear || 1, payHeatForShift:false, cards: []};
+    }
+  }
+
+  function finalizeStartRaceIntoPlanning(){
+    // Starting hands after all setup modifications.
+    drawStartingHands();
+
     G.phase = PHASE.PLANNING;
     G.planningIdx = 0;
     G.round = 1;
     G.finishedOrder = [];
+    // clear per-round markers
+    for (const p of G.players){ delete p._resolvedThisRound; }
 
     log(`Race started with ${G.players.length} car(s), ${G.track.lapsRequired} lap(s).`);
     renderAll();
@@ -1931,11 +3037,14 @@ function advanceResolutionIdx(){
       const disabled = (!cardCanBePlayed(c)) || (selected.size >= p.gear && !selected.has(c.id));
       const cls = ['card', disabled?'disabled':'', selected.has(c.id)?'selected':''].join(' ');
       return `
-        <div class="${cls}" data-cid="${c.id}" title="${escapeHtml(fmtCard(c))}">
+        <div class="${cls}" data-cid="${c.id}" title="${escapeHtml(cardTooltip(c))}">
           <div class="top"><div class="val">${c.type==='stress'?'+':(c.type==='heat'?'':(c.value??''))}</div><div class="tag">${c.type.toUpperCase()}</div></div>
-          <div class="btm">
-            <div class="sym ${c.type==='stress'?'plus':(c.type==='heat'?'heat':'')}">${c.type==='stress'?'+':(c.type==='heat'?'HEAT':'')}</div>
-            <div class="small muted">${c.type==='upgrade'?'UPG':''}</div>
+          <div class="btm" style="flex-direction:column;align-items:flex-start;gap:2px">
+            <div class="row" style="width:100%;justify-content:space-between">
+              <div class="sym ${c.type==='stress'?'plus':(c.type==='heat'?'heat':((c.type==='upgrade'&&c.cool)?'cool':''))}">${c.type==='stress'?'+':(c.type==='heat'?'HEAT':(c.type==='upgrade'?(c.cool?('❄'+c.cool):''):''))}</div>
+              <div class="small muted">${c.type==='upgrade'?(`U${c.upgNum||''}`):(c.type==='heat'&&c.origin==='upgrade'?(`U${c.upgNum||''}`):'')}</div>
+            </div>
+            ${c.type==='upgrade'?(`<div class="upgLabel">${escapeHtml(c.name||'Upgrade')}</div>`):(c.type==='heat'&&c.origin==='upgrade'?(`<div class="upgLabel">Upgrade Heat</div>`):'')}
           </div>
         </div>
       `;
@@ -1983,7 +3092,8 @@ function advanceResolutionIdx(){
           <div class="pill">Selected: <span id="selCount">${selected.size}</span> / ${p.gear}</div>
         </div>
         <div class="hand" id="hand">${handHtml}</div>
-      </div>
+        ${renderUpgradeDetailsFromHand(p.hand)}
+
 
       <div class="note small" style="margin-top:10px">
         <strong>Tip:</strong> Stress cards (+) will flip random speed 1–4 (Basic) during reveal. Heat cards clog your hand and can’t be played.
@@ -2060,11 +3170,14 @@ function advanceResolutionIdx(){
       const cls = ['card', (G._discardPick?.has(c.id)?'selected':'')].join(' ');
       const disabled = (step === STEP.DISCARD) ? isNonDiscardable(c) : !cardCanBePlayed(c);
       return `
-        <div class="${cls} ${disabled?'disabled':''}" data-cid="${c.id}" title="${escapeHtml(fmtCard(c))}">
+        <div class="${cls} ${disabled?'disabled':''}" data-cid="${c.id}" title="${escapeHtml(cardTooltip(c))}">
           <div class="top"><div class="val">${c.type==='stress'?'+':(c.type==='heat'?'':(c.value??''))}</div><div class="tag">${c.type.toUpperCase()}</div></div>
-          <div class="btm">
-            <div class="sym ${c.type==='stress'?'plus':(c.type==='heat'?'heat':'')}">${c.type==='stress'?'+':(c.type==='heat'?'HEAT':'')}</div>
-            <div class="small muted">${c.type==='upgrade'?'UPG':''}</div>
+          <div class="btm" style="flex-direction:column;align-items:flex-start;gap:2px">
+            <div class="row" style="width:100%;justify-content:space-between">
+              <div class="sym ${c.type==='stress'?'plus':(c.type==='heat'?'heat':((c.type==='upgrade'&&c.cool)?'cool':''))}">${c.type==='stress'?'+':(c.type==='heat'?'HEAT':(c.type==='upgrade'?(c.cool?('❄'+c.cool):''):''))}</div>
+              <div class="small muted">${c.type==='upgrade'?(`U${c.upgNum||''}`):(c.type==='heat'&&c.origin==='upgrade'?(`U${c.upgNum||''}`):'')}</div>
+            </div>
+            ${c.type==='upgrade'?(`<div class="upgLabel">${escapeHtml(c.name||'Upgrade')}</div>`):(c.type==='heat'&&c.origin==='upgrade'?(`<div class="upgLabel">Upgrade Heat</div>`):'')}
           </div>
         </div>
       `;
@@ -2073,15 +3186,27 @@ function advanceResolutionIdx(){
     // Step-specific controls
     let controls = '';
 
-    if (step === STEP.REVEAL_MOVE){
+        if (step === STEP.REVEAL_MOVE){
+      const pc = G.pendingChoice;
+      const needsBrake = (pc && pc.kind==='brake' && pc.pid===p.id);
       controls = `
         <div class="note">
-          <div class="row" style="justify-content:space-between">
+          <div class="row" style="justify-content:space-between;align-items:flex-start">
             <div>
               <strong>Step 3: Reveal & Move</strong>
-              <div class="small muted">Reveal played cards. Stress (+) flips until Basic 1–4 appears (non-basic flipped cards are discarded). Then move exactly total Speed.</div>
+              <div class="small muted">Reveal played cards. First total fixed Speed, resolve Stress/+ boost symbols, then choose any variable Speed (Brakes), then move exactly total Speed.</div>
+              ${needsBrake ? `
+                <div class="hr"></div>
+                <div>
+                  <div class="pill">Brakes</div>
+                  <div class="small muted" style="margin-top:6px">Choose Speed for <strong>${escapeHtml(pc.label)}</strong>:</div><div class="small muted" style="margin-top:4px">Subtotal after Stress/+ boosts: <strong>${pc.baseSpeed}</strong></div>
+                  <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px">
+                    ${pc.choices.map(v=>`<button class=\"btn\" data-act=\"brakeChoice\" data-val=\"${v}\">${v} <span class=\"muted\">(→ ${pc.baseSpeed + v})</span></button>`).join('')}
+                  </div>
+                </div>
+              `:''}
             </div>
-            <button class="btn primary" id="btnNext">Reveal & Move</button>
+            <button class="btn primary" id="btnNext" ${needsBrake?'disabled':''}>Reveal & Move</button>
           </div>
         </div>
       `;
@@ -2267,6 +3392,7 @@ function advanceResolutionIdx(){
         <div class="small muted">Deck ${p.deck.length} • Discard ${p.discard.length} • Top discard: ${escapeHtml(fmtCard(p.publicTopDiscard))}</div>
       </div>
       <div class="hand" id="hand">${handHtml}</div>
+        ${renderUpgradeDetailsFromHand(p ? p.hand : [])}
 
       <div class="note small" style="margin-top:10px">
         <strong>Resolution order:</strong> ${sortedCars(true,false).map(x => x.id===p.id?`<span class="tag2" style="border-color:rgba(91,214,255,.45)">${escapeHtml(x.name)}</span>`:`<span class="tag2">${escapeHtml(x.name)}</span>`).join(' ')}
@@ -2279,6 +3405,26 @@ function advanceResolutionIdx(){
 
     const nextBtn = $('#btnNext');
     if (nextBtn) nextBtn.addEventListener('click', () => nextStep());
+
+    // Brakes choice during Reveal & Move
+    if (G.activeStep === STEP.REVEAL_MOVE){
+      const pc = G.pendingChoice;
+      if (pc && pc.kind==='brake' && pc.pid===p.id){
+        $$('[data-act="brakeChoice"]').forEach(btn=>{
+          btn.addEventListener('click', ()=>{
+            const val = parseInt(btn.getAttribute('data-val'), 10);
+            const card = p.play.find(c=>c && c.id===pc.cardId);
+            if (card){
+              pushHistory(`Choose Brakes speed: ${p.name} → ${val}`);
+              card.chosen = val;
+            }
+            G.pendingChoice = null;
+            renderAll();
+            nextStep();
+          });
+        });
+      }
+    }
 
     // Adrenaline toggles
     if (G.activeStep === STEP.ADRENALINE && G.adrenaline.eligible && !p.isAI){
