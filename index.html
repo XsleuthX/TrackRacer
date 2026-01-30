@@ -78,6 +78,7 @@
   .space .idx{font-size:11px;color:var(--muted);display:flex;justify-content:space-between;gap:6px}
   .badge{font-size:10px;padding:2px 6px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.03);color:var(--muted)}
   .badge.finish{border-color:rgba(125,255,155,.4);background:rgba(125,255,155,.10);color:#bfffd0}
+.badge.press{background:rgba(255,110,205,.14);border-color:rgba(255,110,205,.33);color:rgba(255,190,235,.95);}
   .badge.corner{border-color:rgba(255,206,91,.45);background:rgba(255,206,91,.10);color:#ffe7b0}
   .spots{display:grid;grid-template-rows: 1fr 1fr;gap:6px;flex:1}
   .spots.one{grid-template-rows: 1fr}
@@ -203,6 +204,10 @@
     pointer-events:none;
   }
 
+
+  .tbl{width:100%;border-collapse:collapse;font-size:13px}
+  .tbl th,.tbl td{border-bottom:1px solid rgba(255,255,255,0.14);padding:6px 8px;text-align:left}
+  .tbl th{color:rgba(255,255,255,0.72);font-weight:700}
 </style>
 </head>
 <body>
@@ -234,7 +239,26 @@
         <select id="trackViewMode">
           <option value="map" selected>Map</option>
           <option value="strip">Strip</option>
-        </select>
+        
+</select>
+<span class="tag2">Path</span>
+        <button class="btn small" id="btnPathEdit" title="Edit the race line path to match your background image. Drag points. Shift+Click adds a point. Alt+Click deletes a point.">Edit</button>
+        <button class="btn small" id="btnPathReset" title="Reset the path to the preset default for this track.">Reset</button>
+        <span class="small muted" id="pathStatus"></span>
+                <span class="tag2">BG</span>
+        <button class="btn small" id="btnBgLoad" title="Load a background image for the current track (local file).">Load</button>
+        <button class="btn small" id="btnBgClear" title="Clear background image for the current track.">Clear</button>
+        <span class="small muted" id="bgStatus">(none)</span>
+        <span class="tag2">Opacity</span>
+        <input id="bgOpacity" type="range" min="0" max="100" value="85" style="width:110px" />
+        <span class="tag2">Scale</span>
+        <input id="bgScale" type="range" min="50" max="200" value="100" style="width:110px" />
+        <span class="tag2">X</span>
+        <input id="bgDx" type="range" min="-50" max="50" value="0" style="width:90px" />
+        <span class="tag2">Y</span>
+        <input id="bgDy" type="range" min="-50" max="50" value="0" style="width:90px" />
+        <input id="trackBgFile" type="file" accept="image/*" style="display:none" />
+
         <span class="tag2">Auto-scroll</span>
         <select id="autoScroll">
           <option value="on" selected>On</option>
@@ -341,7 +365,8 @@
   function fmtCard(c){
     if (!c) return "—";
     if (c.type === 'basic') return `Basic ${c.value}`;
-    if (c.type === 'upgrade') return c.upgName ? `Upgrade ${c.value} (${c.upgName}${c.cool?`, ❄${c.cool}`:''})` : `Upgrade ${c.value}`;
+    if (c.type === 'upgrade') return c.name ? `U${c.upgNum||''} ${c.name} (${c.value})` : `Upgrade ${c.value}`;
+    if (c.type === 'sponsor') return c.name ? `Sponsor ${c.choices?('[?]'):(c.value)} (${c.name})` : `Sponsor ${c.value}`;
     if (c.type === 'stress') return c.revealedCard ? `Stress (+→Basic ${c.revealedCard.value})` : `Stress (+)`;
     if (c.type === 'heat') return `Heat`;
     return c.type;
@@ -354,22 +379,49 @@
     if (c.type === 'upgrade' || (c.type==='heat' && c.origin==='upgrade')){
       t += "\n" + upgradeCardFaceText(c);
     }
+    if (c.type === 'sponsor'){
+      t += "\n" + (c.desc || 'One-time sponsorship card. Removed after being played.');
+      if (c.slipBonus) t += `\nSlipstream +${c.slipBonus}`;
+      if (c.cool) t += `\nCooldown +${c.cool}`;
+      if (c.limitMod) t += `\nCorner Limit +${c.limitMod}`;
+      if (c.choices) t += `\nChoose speed: ${c.choices.join('/')}`;
+    }
     return t;
   }
 
   function renderUpgradeDetailsFromHand(hand){
-    const upgs = (hand||[]).filter(c => c.type==='upgrade' || (c.type==='heat' && c.origin==='upgrade'));
+    const upgs = (hand||[]).filter(c => c.type==='upgrade' || c.type==='sponsor' || (c.type==='heat' && c.origin==='upgrade'));
     if (!upgs.length) return '';
+    function sponsorText(c){
+      const lines = [];
+      if (c.desc) lines.push(c.desc);
+      if (c.slipBonus) lines.push(`Slipstream +${c.slipBonus} (this turn)`);
+      if (c.limitMod) lines.push(`Corner Speed Limit +${c.limitMod} (this turn)`);
+      if (c.cool) lines.push(`Cooldown +${c.cool} (optional)`);
+      if (c.choices) lines.push(`Choose speed: ${c.choices.join('/')}`);
+      return lines.join('\n');
+    }
     return `
       <div class="note small" style="margin-top:10px">
-        <strong>Upgrade cards in hand</strong>
-        <div class="small muted">Name + effect reference (for Advanced mode clarity).</div>
+        <strong>Special cards in hand</strong>
+        <div class="small muted">Upgrade / Sponsorship reference (Advanced + Championship).</div>
         <div class="upgList">
           ${upgs.map(c=>{
-            const title = (c.type==='upgrade') ? `U${c.upgNum} ${c.name}` : `U${c.upgNum||'?'} Heat`;
+            let title='', body='';
+            if (c.type==='upgrade'){
+              title = `U${c.upgNum} ${c.name}`;
+              body = upgradeCardFaceText(c);
+            } else if (c.type==='sponsor'){
+              const v = c.choices ? `(${c.choices.join('/')})` : `(${c.value})`;
+              title = `S ${c.name} ${v}`;
+              body = sponsorText(c);
+            } else {
+              title = `Heat (Upgrade effect)`;
+              body = 'This Heat card was created by an upgrade effect and clogs your hand like normal Heat.';
+            }
             return `<div class="upgItem">
               <div style="font-weight:850">${escapeHtml(title)}</div>
-              <pre class="upgDesc">${escapeHtml(upgradeCardFaceText(c))}</pre>
+              <pre class="upgDesc">${escapeHtml(body||'')}</pre>
             </div>`;
           }).join('')}
         </div>
@@ -418,6 +470,11 @@
       const j = Math.floor(rng()*(i+1));
       [arr[i], arr[j]] = [arr[j], arr[i]];
     }
+
+  // Convenience wrapper used by some modules
+  function shuffle(arr){
+    shuffleInPlace(arr, rng);
+  }
   }
 
   /***********************
@@ -525,6 +582,53 @@
   const TRACK_SELECTED_KEY = 'heat.trackPresetId.v1';
   const TRACK_CUSTOM_KEY   = 'heat.customTrack.v2';
 
+  // Multiple saved custom track presets
+  const TRACK_CUSTOM_PRESETS_KEY = 'heat.customTrackPresets.v1';
+
+  function loadCustomPresets(){
+    try{
+      const raw = localStorage.getItem(TRACK_CUSTOM_PRESETS_KEY);
+      if (!raw) return [];
+      const arr = JSON.parse(raw);
+      if (!Array.isArray(arr)) return [];
+      // Normalize shape
+      return arr
+        .filter(x => x && typeof x.id==='string' && x.track)
+        .map(x => ({
+          id: String(x.id),
+          name: String(x.name || x.track?.name || x.id),
+          track: normalizeTrack(x.track)
+        }));
+    }catch(e){
+      return [];
+    }
+  }
+
+  function saveCustomPresets(list){
+    try{
+      localStorage.setItem(TRACK_CUSTOM_PRESETS_KEY, JSON.stringify(list));
+    }catch(e){}
+  }
+
+  function isUserPresetId(id){
+    if (!id || id==='custom') return false;
+    const list = loadCustomPresets();
+    return list.some(p => p.id === id);
+  }
+
+  function makeUserPresetId(){
+    // Deterministic enough for local storage; still unique in practice
+    return 'u_' + Date.now().toString(36) + '_' + Math.floor((Math.random()*1e9)).toString(36);
+  }
+
+  function getAllPresets(){
+    const builtIns = (TRACK_LIBRARY||[]).filter(p => p && p.id && p.id !== 'custom');
+    const customs = loadCustomPresets();
+    return [...builtIns, ...customs];
+  }
+
+
+
   function getInitialTrackPresetId(){
     try{
       return localStorage.getItem(TRACK_SELECTED_KEY) || 'demo';
@@ -534,7 +638,7 @@
   }
 
   function getPresetById(id){
-    return (TRACK_LIBRARY||[]).find(p => p.id === id) || null;
+    return (getAllPresets()||[]).find(p => p.id === id) || null;
   }
 
   function loadCustomTrack(){
@@ -556,6 +660,14 @@
   }
 
   function setTrack(nextTrack, {persist=true, remapPositions=true, presetId=null} = {}){
+    // Guard: championship or setup may call setTrack(null) before a preset is chosen
+    if (!nextTrack){
+      try{
+        nextTrack = (typeof structuredClone === 'function') ? structuredClone(DEFAULT_TRACK) : JSON.parse(JSON.stringify(DEFAULT_TRACK));
+      }catch(e){
+        nextTrack = DEFAULT_TRACK;
+      }
+    }
     const nt = normalizeTrack(nextTrack);
     G.track = nt;
 
@@ -573,6 +685,9 @@
     // Remember current selection in-state
     if (presetId) G.trackPresetId = presetId;
     if (!G.trackPresetId) G.trackPresetId = 'custom';
+
+    // Apply any saved map path override for this track preset
+    applyPolyOverrideToCurrentTrack();
 
     if (remapPositions && Array.isArray(G.players)){
       const N = nt.spacesCount;
@@ -615,6 +730,101 @@
 
   let G = null;
   let rng = null;
+
+  // --- Track background images (local-only; not bundled) ---
+  const BG_STORE_KEY = 'heat_track_bg_by_track';
+  // Stored as { [trackKey]: {dataUrl, w, h, opacity, scale, dx, dy} }
+  let trackBgByTrack = {};
+  const bgImgCache = new Map(); // trackKey -> Image
+
+  // --- Track map polyline overrides (per track, local-only; not bundled) ---
+  const POLY_STORE_KEY = 'heat_track_poly_by_track';
+  // Stored as { [trackKey]: {mapPoly:[[x,y],...]} }
+  let trackPolyByTrack = {};
+
+  function loadPolyStore(){
+    try{
+      const raw = localStorage.getItem(POLY_STORE_KEY);
+      if (raw) trackPolyByTrack = JSON.parse(raw) || {};
+    }catch(e){ trackPolyByTrack = {}; }
+  }
+  function persistPolyStore(){
+    try{ localStorage.setItem(POLY_STORE_KEY, JSON.stringify(trackPolyByTrack)); }
+    catch(e){ /* ignore */ }
+  }
+  function getPolyOverride(){
+    return trackPolyByTrack[trackKey()]?.mapPoly || null;
+  }
+  function setPolyOverride(mapPoly){
+    const k = trackKey();
+    if (!mapPoly){
+      delete trackPolyByTrack[k];
+    } else {
+      trackPolyByTrack[k] = { mapPoly: mapPoly };
+    }
+    persistPolyStore();
+  }
+  function applyPolyOverrideToCurrentTrack(){
+    if (!G || !G.track) return;
+    const ov = getPolyOverride();
+    if (Array.isArray(ov) && ov.length>=4){
+      G.track.mapPoly = deepClone(ov);
+    }
+  }
+
+  // --- Map path editing state ---
+  let mapEditEnabled = false;
+  let mapDragIndex = -1;
+  let mapDragging = false;
+
+
+  function trackKey(){
+    return (G && (G.trackPresetId || G.track?.name)) || 'custom';
+  }
+  function loadBgStore(){
+    try{
+      const raw = localStorage.getItem(BG_STORE_KEY);
+      if (raw) trackBgByTrack = JSON.parse(raw) || {};
+    }catch(e){ trackBgByTrack = {}; }
+  }
+  function persistBgStore(){
+    try{ localStorage.setItem(BG_STORE_KEY, JSON.stringify(trackBgByTrack)); }
+    catch(e){ /* ignore quota errors */ }
+  }
+  function getTrackBg(){
+    return trackBgByTrack[trackKey()] || null;
+  }
+  function setTrackBg(bg){
+    const k = trackKey();
+    if (!bg){
+      delete trackBgByTrack[k];
+      bgImgCache.delete(k);
+      persistBgStore();
+      updateBgUI();
+      renderTrack();
+      return;
+    }
+    trackBgByTrack[k] = bg;
+    persistBgStore();
+    updateBgUI();
+    renderTrack();
+  }
+  function updateBgUI(){
+    const st = $('#bgStatus');
+    const op = $('#bgOpacity');
+    const sc = $('#bgScale');
+    const dx = $('#bgDx');
+    const dy = $('#bgDy');
+    const bg = getTrackBg();
+    if (st){
+      st.textContent = bg ? `loaded (${Math.round((bg.w||0))}×${Math.round((bg.h||0))})` : '(none)';
+    }
+    if (op){ op.disabled = !bg; op.value = bg ? String(Math.round((bg.opacity??0.85)*100)) : '85'; }
+    if (sc){ sc.disabled = !bg; sc.value = bg ? String(Math.round((bg.scale??1.0)*100)) : '100'; }
+    if (dx){ dx.disabled = !bg; dx.value = bg ? String(Math.round((bg.dx??0)*100)) : '0'; }
+    if (dy){ dy.disabled = !bg; dy.value = bg ? String(Math.round((bg.dy??0)*100)) : '0'; }
+  }
+
   let history = [];
 
   function pushHistory(reason){
@@ -651,9 +861,11 @@
     const seed = ("seed-" + Math.random().toString(16).slice(2,10));
     G = {
       version: 1,
-      modules: {garage:false, weatherRoad:false, upgradePool:'basic'},
+      modules: {garage:false, weatherRoad:false, championship:false, upgradePool:'basic'},
       weatherRoad: null,
       draft: null,
+      champ: null,
+      champConfig: {enabled:false, races:4, schedulePreset:'mix', points:[10,6,4,3,2,1], startSponsorship:1, pressCornersMode:'first'},
       seed,
       rngCalls: 0,
       phase: PHASE.SETUP,
@@ -1035,7 +1247,7 @@
   function ensureResolutionAI(){
     if (G.phase !== PHASE.RESOLUTION) return;
     const p = activePlayer();
-    if (!p || p.finished) return;
+    if (!p || p.removedFromTrack) return;
     if (!p.isAI) return;
     // For AI in resolution, auto-pick choices (adrenaline, boost, slipstream, discard)
     // We execute step-by-step as if clicking "Next" repeatedly.
@@ -1302,7 +1514,7 @@ function advanceResolutionIdx(){
     // If cannot pay, discard the Upgrade and replace it with a random Basic (as with a "+" symbol).
     for (let i=0;i<p.play.length;i++){
       const c = p.play[i];
-      if (!c || c.type !== 'upgrade') continue;
+      if (!c || (c.type !== 'upgrade' && c.type !== 'sponsor')) continue;
       if (c.payHeatCost && c.payHeatCost > 0){
         if (p.engine.length >= c.payHeatCost){
           payHeat(p, c.payHeatCost);
@@ -1334,7 +1546,7 @@ function advanceResolutionIdx(){
 
     // 2) Upgrade "+" icons: flip that many Basics; keep them attached to the Upgrade and in play until replenish.
     for (const c of p.play){
-      if (!c || c.type !== 'upgrade') continue;
+      if (!c || (c.type !== 'upgrade' && c.type !== 'sponsor')) continue;
       c.plusCards = c.plusCards || [];
       if (c.plus && c.plus > 0){
         for (let k=0;k<c.plus;k++){
@@ -1356,7 +1568,7 @@ function advanceResolutionIdx(){
   const subtotal = p.play.reduce((sum,c)=>{
     if (!c) return sum;
     if (c.type === 'stress') return sum + (c.revealedCard ? (c.revealedCard.value||0) : 0);
-    if (c.type === 'upgrade'){
+    if (c.type === 'upgrade' || c.type === 'sponsor'){
       const plus = (c.plusCards||[]).reduce((s,x)=>s+(x.value||0),0);
       if (c.choices && (c.chosen==null)) return sum + plus; // variable chosen later
       const base = (c.choices ? (c.chosen||0) : (c.value||0));
@@ -1367,7 +1579,7 @@ function advanceResolutionIdx(){
   p._baseSpeedNoVar = subtotal;
 
   // Choose variable-speed upgrades ("Brakes") AFTER Stress/+ have been resolved.
-  const nextVar = p.play.find(c => c && c.type==='upgrade' && c.choices && (c.chosen==null));
+  const nextVar = p.play.find(c => c && (c.type==='upgrade' || c.type==='sponsor') && c.choices && (c.chosen==null));
   if (nextVar){
     if (p.isAI){
       // Conservative AI choice (prefer not to overspeed a nearby corner)
@@ -1411,7 +1623,7 @@ function advanceResolutionIdx(){
 
   const speed = p.play.reduce((sum,c)=>{
     if (c.type === 'stress') return sum + (c.revealedCard ? (c.revealedCard.value||0) : 0);
-    if (c.type === 'upgrade'){
+    if (c.type === 'upgrade' || c.type === 'sponsor'){
       const base = (c.choices ? (c.chosen||0) : (c.value||0));
       const plus = (c.plusCards||[]).reduce((s,x)=>s+(x.value||0),0);
       return sum + base + plus;
@@ -1553,7 +1765,7 @@ function advanceResolutionIdx(){
 function buildReactActions(p){
   const actions = [];
   for (const c of p.play){
-    if (!c || c.type !== 'upgrade') continue;
+    if (!c || (c.type !== 'upgrade' && c.type !== 'sponsor')) continue;
     const label = (c.name || c.label || `Upgrade ${c.upgNum||''}`).trim();
     // Mandatory-like effects (we still click through to keep ordering clear)
     if (c.scrap && c.scrap > 0){
@@ -1774,6 +1986,14 @@ function autoResolveUpgradeActionsAI(p){
     G.cornerCrossed.push(...res.cornerCrossed);
   }
   log(`${p.name} slipstreams +${dist} space(s).`);
+  // Championship: press corner reward if slipstream crosses it
+  if (G.modules.championship && G.champ){
+    for (const cc of (res.cornerCrossed||[])){
+      if (isPressCorner(cc.cornerLineIndex)){
+        champAwardSponsorToPlayer(p, 'slipstream', cc.cornerLineIndex);
+      }
+    }
+  }
 }
 
   function endSlipstream(p){
@@ -2031,7 +2251,7 @@ function autoResolveUpgradeActionsAI(p){
   function autoResolveAIIfNeeded(){
     if (G.phase !== PHASE.RESOLUTION) return;
     const p = activePlayer();
-    if (!p || !p.isAI || p.finished) return;
+    if (!p || !p.isAI || p.removedFromTrack) return;
 
     // If we are at adrenaline step, decide now.
     if (G.activeStep === STEP.ADRENALINE){
@@ -2164,6 +2384,18 @@ function autoResolveUpgradeActionsAI(p){
           return `Corner @${c.cornerLineIndex}: ${rt.label}`;
         }).filter(Boolean);
         const cornerLines = cornerEntries.join('<br>');
+        const pressHtml = (G.modules.championship && G.champ && (G.champ.pressCorners||[]).length) ? (() => {
+          const pcs = (G.champ.pressCorners||[]).slice().sort((a,b)=>a-b);
+          const list = pcs.map(x=>`@${x}`).join(', ');
+          const detail = 'Earn Sponsorship if you Slipstream across a PRESS corner line, or overspeed that corner by 2+ (after modifiers), and you did not spin out.';
+          return `
+            <div style="flex:1">
+              <div class="small muted">Press corners</div>
+              <div class="tokLine"><span class="badge press">PRESS</span> ${escapeHtml(list)}</div>
+              <div class="small muted" style="margin-top:4px">${escapeHtml(detail)}</div>
+            </div>`;
+        })() : '';
+
         tokEl.innerHTML = `
           <div class="row" style="gap:18px">
             <div style="min-width:170px">
@@ -2178,6 +2410,7 @@ function autoResolveUpgradeActionsAI(p){
               <div class="small muted">Corner tokens</div>
               <div class="tokLine">${cornerLines||'(none)'}</div>
             </div>
+            ${pressHtml}
           </div>
         `;
       } else {
@@ -2193,6 +2426,7 @@ function autoResolveUpgradeActionsAI(p){
       const badges = [];
       if (i === t.finishIndex) badges.push(`<span class="badge finish">FINISH</span>`);
       if (corner) badges.push(`<span class="badge corner">CORNER ≤${corner.speedLimit}</span>`);
+      if (G.modules.championship && isPressCorner(i)) badges.push(`<span class="badge press">PRESS</span>`);
       if (G.weatherRoad){
         const rt = (G.weatherRoad.roadCorner||{})[i];
         if (rt) badges.push(`<span class="badge road">${escapeHtml(rt.label)}</span>`);
@@ -2220,7 +2454,7 @@ function autoResolveUpgradeActionsAI(p){
       space.innerHTML = `
         <div class="idx">
           <span>#${i}</span>
-          <span style="display:flex;gap:6px;align-items:center">${badges.join('')}</span>
+          <span style="display:flex;flex-direction:column;gap:2px;align-items:flex-end;max-width:78%">${badges.join('')}</span>
         </div>
         <div class="spots ${t.spotsPerSpace===1?'one':''}">
           <div class="spot raceline" data-idx="${i}" data-lane="0"></div>
@@ -2275,6 +2509,37 @@ function autoResolveUpgradeActionsAI(p){
     canvas.height = Math.floor(H * dpr);
     ctx.setTransform(dpr,0,0,dpr,0,0);
     ctx.clearRect(0,0,W,H);
+
+
+    // Optional background image (local upload). Not included in the HTML.
+    const bg = getTrackBg();
+    if (bg && bg.dataUrl){
+      const k = trackKey();
+      let img = bgImgCache.get(k);
+      if (!img){
+        img = new Image();
+        img.onload = () => { bgImgCache.set(k, img); renderTrackMap(); };
+        img.onerror = () => { /* ignore */ };
+        img.src = bg.dataUrl;
+      } else {
+        // Match canvas height to background aspect ratio for nicer alignment
+        const desiredH = Math.max(200, Math.round(W * (img.naturalHeight / img.naturalWidth)));
+        if (Math.abs((canvas.clientHeight||H) - desiredH) > 2){
+          canvas.style.height = desiredH + 'px';
+        }
+        const opacity = (bg.opacity ?? 0.85);
+        const scale = (bg.scale ?? 1.0);
+        const dx = (bg.dx ?? 0) * W;
+        const dy = (bg.dy ?? 0) * H;
+        const drawW = W * scale;
+        const drawH = (W * (img.naturalHeight / img.naturalWidth)) * scale;
+        ctx.save();
+        ctx.globalAlpha = opacity;
+        ctx.imageSmoothingEnabled = true;
+        ctx.drawImage(img, dx, dy, drawW, drawH);
+        ctx.restore();
+      }
+    }
 
     // ---- Layout: Map View polyline (original, schematic) ----
     const poly = (Array.isArray(t.mapPoly) && t.mapPoly.length>=4) ? t.mapPoly : (DEFAULT_TRACK.mapPoly || [
@@ -2385,6 +2650,7 @@ function autoResolveUpgradeActionsAI(p){
       ctx.fillStyle = kind==='corner' ? 'rgba(255,206,91,0.95)' :
                       kind==='road'   ? 'rgba(91,214,255,0.9)' :
                       kind==='sector' ? 'rgba(125,255,155,0.85)' :
+                      kind==='press'  ? 'rgba(255,110,205,0.90)' :
                                        'rgba(255,255,255,0.85)';
       ctx.strokeStyle = 'rgba(0,0,0,0.35)';
       ctx.lineWidth = 1;
@@ -2415,6 +2681,10 @@ function autoResolveUpgradeActionsAI(p){
       const by = s.y + s.ny*40;
       drawBadge(bx,by,`≤${c.speedLimit} @${c.cornerLineIndex}`,'corner');
 
+      if (G.modules.championship && isPressCorner(c.cornerLineIndex)){
+        drawBadge(bx,by-26,`PRESS @${c.cornerLineIndex}`,'press');
+      }
+
       if (G.weatherRoad){
         const rt = (G.weatherRoad.roadCorner||{})[c.cornerLineIndex];
         if (rt){
@@ -2440,7 +2710,13 @@ function autoResolveUpgradeActionsAI(p){
       drawBadge(W*0.10,H*0.12,`Weather: ${w.setupLabel} • ${w.sectorLabel}`,'road');
     }
 
-    // Draw cars
+    
+
+    // championship badge
+    if (G.modules.championship && G.champ){
+      drawBadge(W*0.10,H*0.17,`Championship: Race ${G.champ.raceIndex+1}/${G.champ.racesTotal}`,'press');
+    }
+// Draw cars
     for (const p of G.players){
       if (p.removedFromTrack) continue;
       const idx = (p.pos.idx+N)%N;
@@ -2473,6 +2749,42 @@ function autoResolveUpgradeActionsAI(p){
   }
 
 
+    // Map path editor overlay (visual control points)
+    if (mapEditEnabled){
+      const polyN = poly; // normalized points
+      ctx.save();
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6,6]);
+      ctx.strokeStyle = 'rgba(91,214,255,0.85)';
+      ctx.beginPath();
+      for (let i=0;i<polyN.length;i++){
+        const px = polyN[i][0]*W, py = polyN[i][1]*H;
+        if (i===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      for (let i=0;i<polyN.length;i++){
+        const px = polyN[i][0]*W, py = polyN[i][1]*H;
+        const r = (i===mapDragIndex) ? 7 : 5;
+        ctx.beginPath();
+        ctx.arc(px,py,r,0,Math.PI*2);
+        ctx.fillStyle = (i===mapDragIndex) ? 'rgba(255,206,91,0.95)' : 'rgba(91,214,255,0.95)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+      // help text
+      ctx.fillStyle = 'rgba(0,0,0,0.75)';
+      ctx.fillRect(10,10,360,44);
+      ctx.fillStyle = 'rgba(255,255,255,0.92)';
+      ctx.font = '12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+      ctx.textAlign='left'; ctx.textBaseline='top';
+      ctx.fillText('Path Edit: drag points • Shift+Click add • Alt+Click delete • Edit button to exit', 18, 18);
+      ctx.restore();
+    }
+
   function renderRight(){
     updatePhasePill();
     updateSeedPill();
@@ -2490,12 +2802,24 @@ function autoResolveUpgradeActionsAI(p){
     }
 
     if (G.phase === PHASE.DRAFT){
-      title.textContent = 'Garage Draft';
-      const cur = (G.draft && G.draft.currentPlayerId) ? G.players.find(x=>x.id===G.draft.currentPlayerId) : null;
-      turnTag.textContent = cur ? `Picker: ${cur.name}` : 'Draft';
-      right.innerHTML = renderDraftUI();
-      hookDraftUI();
-      return;
+	      // Two draft modes share the same PHASE.DRAFT:
+	      //  - Garage draft (3 picks each)
+	      //  - Championship "Build Your Car" (1 pick each)
+	      const d = G.draft;
+	      const cur = (d && d.currentPlayerId) ? G.players.find(x=>x.id===d.currentPlayerId) : null;
+	      turnTag.textContent = cur ? `Picker: ${cur.name}` : 'Draft';
+	
+	      if (d && d.kind === 'champBuild'){
+	        title.textContent = 'Build Your Car';
+	        right.innerHTML = renderChampDraftUI();
+	        hookChampDraftUI();
+	        return;
+	      }
+
+	      title.textContent = 'Garage Draft';
+	      right.innerHTML = renderDraftUI();
+	      hookDraftUI();
+	      return;
     }
 
     if (G.phase === PHASE.PLANNING){
@@ -2543,10 +2867,16 @@ function autoResolveUpgradeActionsAI(p){
     const t = G.track;
     const players = G.players;
     const pid = G.trackPresetId || getInitialTrackPresetId();
-    const trackOptions = (TRACK_LIBRARY||[])
-      .filter(p=>p.id!=='custom')
-      .map(p=>`<option value="${p.id}" ${pid===p.id?'selected':''}>${escapeHtml(p.name)}</option>`)
-      .join('')
+    const builtIns = (TRACK_LIBRARY||[]).filter(p=>p && p.id && p.id!=='custom');
+    const userPresets = loadCustomPresets();
+    const selectedUser = userPresets.find(p=>p.id===pid) || null;
+
+    const builtOpt = builtIns.map(p=>`<option value="${p.id}" ${pid===p.id?'selected':''}>${escapeHtml(p.name)}</option>`).join('');
+    const userOpt = userPresets.map(p=>`<option value="${p.id}" ${pid===p.id?'selected':''}>${escapeHtml(p.name)}</option>`).join('');
+
+    const trackOptions =
+      `<optgroup label="Built-in">${builtOpt}</optgroup>`
+      + (userPresets.length ? `<optgroup label="Saved">${userOpt}</optgroup>` : '')
       + `<option value="custom" ${pid==='custom'?'selected':''}>Custom (your edits)</option>`;
 
     const playerRows = players.map((p, idx) => `
@@ -2597,6 +2927,23 @@ function autoResolveUpgradeActionsAI(p){
               <select id="trackPresetSel" style="width:100%;margin-top:6px">${trackOptions}</select>
             </label>
           </div>
+          <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:10px">
+            <label class="small" style="flex:1;min-width:220px">Saved preset name
+              <input id="presetNameInput" type="text" style="width:100%;margin-top:6px"
+                value="${escapeHtml((selectedUser?.name) || (pid==='custom'?'':(getPresetById(pid)?.name||'')))}"
+                placeholder="e.g., USA — My Exact Board" />
+            </label>
+            <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+              <button class="btn small" data-act="savePresetNew" title="Save the current track as a new preset">Save as new</button>
+              <button class="btn small" data-act="savePresetOverwrite" ${selectedUser?'' :'disabled'} title="Overwrite the selected saved preset with current track">Save to preset</button>
+              <button class="btn small" data-act="renamePreset" ${selectedUser?'' :'disabled'} title="Rename the selected saved preset">Rename</button>
+              <button class="btn danger small" data-act="deletePreset" ${selectedUser?'' :'disabled'} title="Delete the selected saved preset">Delete</button>
+            </div>
+          </div>
+          <div class="small muted" style="margin-top:6px">
+            Tip: Pick a saved preset, edit it in Track Editor, then click <b>Save to preset</b>. Built-in presets are read-only; editing them creates a Custom track unless you save as a new preset.
+          </div>
+
           </div>
           <div class="row">
             <button class="btn small" data-act="resetTrack">Reset to default</button>
@@ -2661,11 +3008,11 @@ function autoResolveUpgradeActionsAI(p){
         </div>
         <div class="grid3" style="margin-top:10px">
           <label class="small">
-            <input type="checkbox" id="modGarage" ${G.modules.garage?'checked':''}/> Garage Draft
+            <input type="checkbox" id="modGarage" ${G.modules.garage?'checked':''} ${G.modules.championship?'disabled':''}/> Garage Draft
             <div class="muted" style="margin-top:4px">Replace starting upgrades with a 3-pick draft.</div>
           </label>
           <label class="small">
-            <input type="checkbox" id="modWeather" ${G.modules.weatherRoad?'checked':''}/> Weather & Road
+            <input type="checkbox" id="modWeather" ${(G.modules.championship||G.modules.weatherRoad)?'checked':''} ${G.modules.championship?'disabled':''}/> Weather & Road
             <div class="muted" style="margin-top:4px">Draw 1 weather + 1 road token per corner.</div>
           </label>
           <label class="small">Upgrade Pool
@@ -2679,7 +3026,40 @@ function autoResolveUpgradeActionsAI(p){
         </div>
       </div>
 
-      <div class="hr"></div>
+      
+      <div class="note">
+        <div class="row" style="justify-content:space-between">
+          <div>
+            <strong>Championship Mode</strong>
+            <div class="small muted">Season play with persistent Upgrades + Sponsorship. (Legends skipped.)</div>
+          </div>
+          <div class="row">
+            <span class="tag2">${G.modules.championship?'CHAMPIONSHIP':'Championship off'}</span>
+          </div>
+        </div>
+        <div class="grid3" style="margin-top:10px">
+          <label class="small">
+            <input type="checkbox" id="modChamp" ${G.modules.championship?'checked':''}/> Enable Championship
+            <div class="muted" style="margin-top:4px">If enabled, Weather/Road is forced ON and Garage Draft is disabled.</div>
+          </label>
+          <label class="small">Races in season<br><input id="champRaces" type="number" min="1" max="12" value="${G.champConfig?.races||4}" /></label>
+          <label class="small">Start Sponsorship / race<br><input id="champStartSpon" type="number" min="0" max="5" value="${G.champConfig?.startSponsorship||1}" /></label>
+          <label class="small">Schedule preset<br>
+            <select id="champSchedule">
+              <option value="mix" ${(G.champConfig?.schedulePreset||'mix')==='mix'?'selected':''}>Mixed (random from presets)</option>
+              <option value="us" ${(G.champConfig?.schedulePreset||'mix')==='us'?'selected':''}>US track only</option>
+            </select>
+          </label>
+          <label class="small">Press corners<br>
+            <select id="champPressMode">
+              <option value="first" ${(G.champConfig?.pressCornersMode||'first')==='first'?'selected':''}>First corner only</option>
+              <option value="random" ${(G.champConfig?.pressCornersMode||'first')==='random'?'selected':''}>Random corner</option>
+            </select>
+          </label>
+          <label class="small">Points (CSV, from 1st)<br><input id="champPoints" value="${(G.champConfig?.points||[10,6,4,3,2,1]).join(',')}" /></label>
+        </div>
+      </div>
+<div class="hr"></div>
 
       <div class="row" style="justify-content:space-between">
         <div class="note" style="flex:1">
@@ -2722,6 +3102,42 @@ function autoResolveUpgradeActionsAI(p){
       G.modules.weatherRoad = cbWeather.checked;
       renderAll();
     });
+
+    // Championship toggle + settings
+    const cbChamp = $('#modChamp');
+    if (cbChamp) cbChamp.addEventListener('change', ()=>{
+      pushHistory('Toggle Championship');
+      G.modules.championship = cbChamp.checked;
+      if (G.modules.championship){
+        // Championship forces Weather/Road on, and disables Garage Draft.
+        G.modules.weatherRoad = true;
+        G.modules.garage = false;
+      }
+      renderAll();
+    });
+
+    // Championship config inputs
+    const champRaces = $('#champRaces');
+    if (champRaces) champRaces.addEventListener('change', ()=>{
+      G.champConfig.races = clamp(parseInt(champRaces.value,10)||4, 1, 12);
+    });
+    const champStartSpon = $('#champStartSpon');
+    if (champStartSpon) champStartSpon.addEventListener('change', ()=>{
+      G.champConfig.startSponsorship = clamp(parseInt(champStartSpon.value,10)||0, 0, 5);
+    });
+    const champSchedule = $('#champSchedule');
+    if (champSchedule) champSchedule.addEventListener('change', ()=>{
+      G.champConfig.schedulePreset = champSchedule.value || 'mix';
+    });
+    const champPressMode = $('#champPressMode');
+    if (champPressMode) champPressMode.addEventListener('change', ()=>{
+      G.champConfig.pressCornersMode = champPressMode.value || 'first';
+    });
+    const champPoints = $('#champPoints');
+    if (champPoints) champPoints.addEventListener('change', ()=>{
+      const arr = (champPoints.value||'').split(',').map(x=>parseInt(x.trim(),10)).filter(x=>Number.isFinite(x) && x>=0);
+      if (arr.length) G.champConfig.points = arr;
+    });
     const selPool = $('#upgLevel');
     if (selPool) selPool.addEventListener('change', ()=>{
       pushHistory('Change Upgrade Pool');
@@ -2749,6 +3165,84 @@ function autoResolveUpgradeActionsAI(p){
       // Track change resets module token placement
       renderAll();
     });
+
+    // Custom track preset actions
+    const nameInp = $('#presetNameInput');
+    const actSaveNew = $('[data-act="savePresetNew"]', $('#rightPanel'));
+    if (actSaveNew) actSaveNew.addEventListener('click', ()=>{
+      pushHistory('Save track preset as new');
+      const nm = ((nameInp && nameInp.value)||'').trim() || 'My Track Preset';
+      const id = makeUserPresetId();
+      // Clone current track, assign id + name
+      let tr;
+      try{ tr = (typeof structuredClone==='function') ? structuredClone(G.track) : JSON.parse(JSON.stringify(G.track)); }
+      catch(e){ tr = JSON.parse(JSON.stringify(G.track)); }
+      tr.id = id; tr.name = nm;
+      const nt = normalizeTrack(tr);
+      const list = loadCustomPresets();
+      list.push({id, name:nm, track: nt});
+      saveCustomPresets(list);
+      setTrack(nt, {persist:true, presetId:id, remapPositions:true});
+      renderAll();
+    });
+
+    const actSaveOver = $('[data-act="savePresetOverwrite"]', $('#rightPanel'));
+    if (actSaveOver) actSaveOver.addEventListener('click', ()=>{
+      const pid = $('#trackPresetSel')?.value || G.trackPresetId;
+      if (!isUserPresetId(pid)){ toast('Select a saved preset first.'); return; }
+      pushHistory('Save track preset');
+      const nm = ((nameInp && nameInp.value)||'').trim() || (getPresetById(pid)?.name||'Saved Preset');
+      let tr;
+      try{ tr = (typeof structuredClone==='function') ? structuredClone(G.track) : JSON.parse(JSON.stringify(G.track)); }
+      catch(e){ tr = JSON.parse(JSON.stringify(G.track)); }
+      tr.id = pid; tr.name = nm;
+      const nt = normalizeTrack(tr);
+      const list = loadCustomPresets();
+      const ix = list.findIndex(p=>p.id===pid);
+      if (ix>=0) list[ix] = {id:pid, name:nm, track: nt};
+      saveCustomPresets(list);
+      setTrack(nt, {persist:true, presetId:pid, remapPositions:true});
+      renderAll();
+    });
+
+    const actRename = $('[data-act="renamePreset"]', $('#rightPanel'));
+    if (actRename) actRename.addEventListener('click', ()=>{
+      const pid = $('#trackPresetSel')?.value || G.trackPresetId;
+      if (!isUserPresetId(pid)){ toast('Select a saved preset first.'); return; }
+      const nm = ((nameInp && nameInp.value)||'').trim();
+      if (!nm){ toast('Enter a name first.'); return; }
+      pushHistory('Rename track preset');
+      const list = loadCustomPresets();
+      const ix = list.findIndex(p=>p.id===pid);
+      if (ix>=0){
+        list[ix].name = nm;
+        // Keep track name in sync
+        if (list[ix].track){ list[ix].track.name = nm; }
+        saveCustomPresets(list);
+        // Also update current track if selected
+        if (G.trackPresetId === pid){
+          G.track.name = nm;
+          try{ localStorage.setItem(TRACK_SELECTED_KEY, pid); }catch(e){}
+        }
+        renderAll();
+      }
+    });
+
+    const actDel = $('[data-act="deletePreset"]', $('#rightPanel'));
+    if (actDel) actDel.addEventListener('click', ()=>{
+      const pid = $('#trackPresetSel')?.value || G.trackPresetId;
+      if (!isUserPresetId(pid)){ toast('Select a saved preset first.'); return; }
+      if (!confirm('Delete this saved preset?')) return;
+      pushHistory('Delete track preset');
+      const list = loadCustomPresets().filter(p=>p.id!==pid);
+      saveCustomPresets(list);
+      // Fall back to Custom edits
+      const ct = loadCustomTrack();
+      setTrack(ct, {persist:true, presetId:'custom', remapPositions:true});
+      renderAll();
+    });
+
+
 
     // Remove player
     $$('[data-act="rmPlayer"]', $('#rightPanel')).forEach(btn => {
@@ -2858,6 +3352,28 @@ function autoResolveUpgradeActionsAI(p){
         roadSector[c.cornerLineIndex] = tok;
       }
     }
+// Ensure completeness: every corner has BOTH a corner-token slot and a sector-token slot.
+// Officially, Road tokens drawn per corner may result in no sector token for a sector; for this simulator's
+// Weather module we enforce at least a "Clear" sector effect for every sector so effects are never missing.
+for (let i=0;i<corners.length;i++){
+  const idx = corners[i].cornerLineIndex;
+  if (!roadCorner[idx]){
+    roadCorner[idx] = mk('corner','clear','Clear corner (no change)', false);
+  }
+  if (!roadSector[idx]){
+    roadSector[idx] = mk('sector','clear','Clear sector (no special effect)', false);
+  }
+}
+// Ensure at least one sector is marked as the Weather sector so the Weather token's sector effect is actually used.
+let hasWeatherSector = false;
+for (const k in roadSector){
+  if (roadSector[k] && roadSector[k].key === 'weather') { hasWeatherSector = true; break; }
+}
+if (!hasWeatherSector && corners.length){
+  const pick = corners[Math.floor(rng()*corners.length)].cornerLineIndex;
+  roadSector[pick] = mk('sector','weather','Weather applies in this sector', false);
+}
+
 
     // Precompute sectors
     const sectors = [];
@@ -3142,6 +3658,27 @@ function autoResolveUpgradeActionsAI(p){
     if (c.accelerate) icons.push(`Accel`);
     return `U${c.upgNum} ${c.name}${choice} ${c.value}${plus}${icons.length?' • '+icons.join(', '):''}`.trim();
   }
+
+  function fmtUpgradeCardBottom(c){
+    if (!c) return '';
+    // Small helper used in draft/hand UIs. Keep it robust even if new card fields appear.
+    if (c.type==='heat' && c.origin==='upgrade') return 'Heat (upgrade)';
+    if (c.type!=='upgrade') return '';
+    const parts = [];
+    if (Array.isArray(c.choices) && c.choices.length) parts.push(`Choice ${c.choices.join('/')}`);
+    if (c.plus) parts.push(`＋${c.plus}`);
+    if (c.payHeatCost) parts.push(`Pay Heat ${c.payHeatCost}`);
+    if (c.cooldownBonus) parts.push(`Cooldown +${c.cooldownBonus}`);
+    if (c.reduceStress) parts.push(`Reduce Stress ${c.reduceStress}`);
+    if (c.salvage) parts.push(`Salvage ${c.salvage}`);
+    if (c.refresh) parts.push('Refresh');
+    if (c.limitMod) parts.push(`Limit ${c.limitMod>0?'+':''}${c.limitMod}`);
+    if (c.slipBonus) parts.push(`Slip +${c.slipBonus}`);
+    if (c.scrap) parts.push(`Scrap ${c.scrap}`);
+    if (c.accelerate) parts.push('Accelerate');
+    return parts.join(' • ');
+  }
+
 
   
   function renderDraftUI(){
@@ -3439,7 +3976,610 @@ function upgradeCardFaceText(c){
   }
 
 
-  function applyTrackBasics(){
+  
+  /***********************
+   * Championship (Option A)
+   * - Persistent Upgrades + Sponsorship across a season of races
+   * - Per-race: Build Your Car (draft 1 Upgrade), then race
+   * - Legends intentionally skipped for now
+   ***********************/
+  const CHAMP_DEFAULT_POINTS = [10,6,4,3,2,1];
+
+  function buildSponsorshipDeck(){
+    // Sponsorship cards (Championship). Text-only; no official art used.
+    // These follow the official sponsorship card types (modeled mechanically).
+    const defs = [
+      {key:'aperaul', name:'APERAULT RPM Cie', value:1, desc:'Slipstream +2 this turn.', slipBonus:2},
+      {key:'deangeli', name:'DE ANGELI WINGS Inc', value:3, desc:'Corner Speed Limit +1 this turn.', limitMod:1},
+      {key:'dramdo', name:'DRAMDO BRAKES™', choices:[1,2,3,4], desc:'Choose 1/2/3/4 speed when revealed.'},
+      {key:'fredo', name:'FREDO & F.LLO C.S.', value:4, desc:'Cooldown +2 (optional) during React.', cool:2},
+      {key:'lord', name:'LORD & Co. T.B.', value:6, desc:'Speed 6.'}
+    ];
+    const deck = [];
+    const COPIES = 7;
+    for (const d of defs){
+      for (let i=0;i<COPIES;i++){
+        deck.push({
+          id: uid(),
+          type: 'sponsor',
+          key: d.key,
+          name: d.name,
+          value: d.value,
+          choices: d.choices,
+          desc: d.desc,
+          slipBonus: d.slipBonus||0,
+          limitMod: d.limitMod||0,
+          cool: d.cool||0
+        });
+      }
+    }
+    shuffleInPlace(deck, rng);
+    return deck;
+  }
+
+  function champTrackSchedule(preset, races){
+    const keys = Object.keys(TRACK_LIBRARY||{}).filter(k=>k!=='custom');
+    if (!keys.length) return Array.from({length:races},()=>getInitialTrackPresetId());
+    if (preset === 'us'){
+      const usId = keys.find(k=>k.toLowerCase().includes('us')) || keys[0];
+      return Array.from({length:races},()=>usId);
+    }
+    // mixed
+    const out = [];
+    for (let i=0;i<races;i++){
+      out.push(keys[Math.floor(rng()*keys.length)]);
+    }
+    return out;
+  }
+
+  function champResetPlayerZones(p){
+    p.engine = [];
+    p.deck = [];
+    p.discard = [];
+    p.hand = [];
+    p.play = [];
+    p.publicTopDiscard = null;
+    p.planned = {gearTarget:1, payHeatForShift:false, cards:[], locked:false};
+    p.boostUsed = false;
+    p.finished = false;
+    p.removedFromTrack = false;
+    p.finishRank = null;
+    p.lap = 0;
+    p.gear = 1;
+    p._resolvedThisRound = false;
+  }
+
+  
+  function ensureChamp(){
+    // Ensure championship config/state exists even in older saves
+    if (!G.champConfig){
+      G.champConfig = {
+        seasonPreset: '1961',
+        races: 4,
+        points: [14,10,6,3,2,1],
+        startSponsors: 0,
+        pressMode: 'default'
+      };
+    }
+    if (!G.champ){
+      G.champ = {
+        enabled: false,
+        seasonKey: G.champConfig.seasonPreset || '1961',
+        raceIndex: 0,
+        racesTotal: clamp((G.champConfig.races)||4, 1, 12),
+        points: (G.champConfig.points)||[14,10,6,3,2,1],
+        standings: [],
+        results: [],
+        sponsorDeck: [],
+        sponsorUsedThisRace: [],
+        pressCorners: []
+      };
+    }
+    if (!Array.isArray(G.champ.results)) G.champ.results = [];
+    if (!Array.isArray(G.champ.standings)) G.champ.standings = [];
+    if (!Array.isArray(G.champ.sponsorDeck)) G.champ.sponsorDeck = [];
+    if (!Array.isArray(G.champ.sponsorUsedThisRace)) G.champ.sponsorUsedThisRace = [];
+    if (!Array.isArray(G.champ.pressCorners)) G.champ.pressCorners = [];
+    return G.champ;
+  }
+
+
+
+  // Ensure discard-pick state is a Set (older saves / clones may turn Sets into arrays/objects)
+  function ensureDiscardPickSet(){
+    const dp = G._discardPick;
+    if (dp instanceof Set) return dp;
+    if (Array.isArray(dp)) { G._discardPick = new Set(dp); return G._discardPick; }
+    if (dp && typeof dp === 'object') {
+      // accept {id:true} maps
+      const ids = Object.keys(dp).filter(k => dp[k]);
+      G._discardPick = new Set(ids);
+      return G._discardPick;
+    }
+    G._discardPick = new Set();
+    return G._discardPick;
+  }
+
+function startChampionshipFromSetup({heat, stress}){
+    pushHistory('Start Championship');
+    ensureChamp();
+    G.champ.enabled = true;
+    G.champ.heat = heat;
+    G.champ.stress = stress;
+    G.champ.raceIndex = 0;
+    G.champ.racesTotal = clamp((G.champConfig?.races)||4, 1, 12);
+    G.champ.points = (G.champConfig?.points?.length ? G.champConfig.points.slice() : CHAMP_DEFAULT_POINTS.slice());
+    G.champ.schedule = champTrackSchedule(G.champConfig?.schedulePreset||'mix', G.champ.racesTotal);
+
+    // Fresh decks for season
+    G.champ.sponsorDeck = buildSponsorshipDeck();
+    G.champ.sponsorUsed = [];
+    G.champ.upgradeDeck = buildUpgradeDeck(G.modules.upgradePool);
+    G.champ.upgradeUsed = [];
+
+    // Initialize player championship meta
+    for (const p of G.players){
+      champResetPlayerZones(p);
+      p.champ = {points:0, upgrades:[], sponsors:[], lastFinish: 999};
+    }
+
+    // First race: random grid
+    setTrack(getTrackPreset(G.champ.schedule[0]).track, {persist:false, presetId:G.champ.schedule[0], remapPositions:false});
+    randomizeStartingGrid();
+
+    // Race state reset
+    G.phase = PHASE.DRAFT;
+    G.round = 1;
+    G.startedCount = 0;
+    G.finishedOrder = [];
+    G.resolveOrder = [];
+    G.resolveIdx = 0;
+    G.activeStep = STEP.REVEAL_MOVE;
+    G.log = [];
+    rebuildLog();
+    log(`Championship begins: ${G.champ.racesTotal} race(s). Race 1 on "${getTrackPreset(G.champ.schedule[0]).name}".`);
+
+    champSetupPressCorners();
+    initChampBuildDraft();
+    renderAll();
+  }
+
+  function champSetupPressCorners(){
+    if (!G.champ) return;
+    const corners = (G.track.corners||[]).slice().sort((a,b)=>a.cornerLineIndex-b.cornerLineIndex);
+    if (!corners.length){ G.champ.pressCorners = []; return; }
+    const mode = (G.champConfig?.pressCornersMode)||'first';
+    if (mode === 'random'){
+      const c = corners[Math.floor(rng()*corners.length)];
+      G.champ.pressCorners = [c.cornerLineIndex];
+    } else {
+      G.champ.pressCorners = [corners[0].cornerLineIndex];
+    }
+  }
+
+  function getTrackPreset(id){
+    const entry = TRACK_LIBRARY[id] || TRACK_LIBRARY[getInitialTrackPresetId()];
+    return entry || {name:'Track', track:getInitialTrack()};
+  }
+
+  function champGridOrderFrontToBack(){
+    // standings desc points, tie by lastFinish asc
+    const arr = G.players.slice().filter(p=>!p.removedFromTrack);
+    arr.sort((a,b)=>{
+      const ap=a.champ?.points||0, bp=b.champ?.points||0;
+      if (bp!==ap) return bp-ap;
+      const al=a.champ?.lastFinish||999, bl=b.champ?.lastFinish||999;
+      if (al!==bl) return al-bl;
+      return a.name.localeCompare(b.name);
+    });
+    return arr.map(p=>p.id);
+  }
+
+  function champPlaceGridFromFrontToBack(orderFront){
+    // place back-to-front so frontmost ends up in the most forward slot
+    const backToFront = orderFront.slice().reverse();
+    const t = G.track;
+    let idx = t.startGridStartIndex ?? 0;
+    let lane = 0;
+    for (const pid of backToFront){
+      const p = G.players.find(x=>x.id===pid);
+      if (!p) continue;
+      const placed = placeWithBlocking(p, idx);
+      p.pos.idx = placed.idx;
+      p.pos.lane = placed.lane;
+      // alternate lanes then advance
+      if (t.spotsPerSpace === 1){ lane = 0; idx = stepForward(idx); }
+      else {
+        if (lane===0){ lane = 1; p.pos.lane = 0; } // keep RL preference in blocking logic
+        else { lane = 0; idx = stepForward(idx); }
+      }
+      if (t.spotsPerSpace===2){
+        // enforce desired lane: first car on a space goes RL, second goes OUT
+        const occ = occupiedAt(idx);
+      }
+    }
+  }
+
+  function champBuildRaceDecksAndStart(){
+    // rebuild every player's race deck from base + owned upgrades + owned sponsors
+    const heat = G.champ.heat;
+    const stress = G.champ.stress;
+
+    for (const p of G.players){
+      champResetPlayerZones(p);
+      const base = makeBasicDeck(p.color);
+      const stressCards = makeStressCards(stress, p.color);
+      const upgs = (p.champ?.upgrades||[]).map(c=>deepClone(c));
+      const spons = (p.champ?.sponsors||[]).map(c=>deepClone(c));
+      // reset variable choices each race
+      for (const c of [...upgs, ...spons]){
+        if (c && c.choices) c.chosen = null;
+      }
+      p.deck = base.concat(stressCards, upgs, spons);
+      shuffleInPlace(p.deck, rng);
+      p.engine = makeHeatCards(heat, p.color);
+      p.hand = [];
+      p.discard = [];
+      p.play = [];
+      p.gear = 1;
+      p.lap = 0;
+      p.finished = false;
+      p.removedFromTrack = false;
+      p.finishRank = null;
+      // draw 7
+      for (let i=0;i<7;i++){
+        const c = drawFromDeck(p, {allowReshuffle:true});
+        if (c) p.hand.push(c);
+      }
+      // start sponsorship for this race (event)
+      const nS = clamp(G.champConfig?.startSponsorship||1, 0, 5);
+      for (let i=0;i<nS;i++){
+        const sp = champDrawSponsorCard();
+        if (sp){
+          p.champ.sponsors.push(deepClone(sp));
+          p.hand.push(sp);
+        }
+      }
+    }
+
+    // Set starting grid based on standings from race 2 onward
+    if (G.champ.raceIndex > 0){
+      const frontOrder = champGridOrderFrontToBack();
+      champPlaceGridFromFrontToBack(frontOrder);
+      log('Starting grid set by Championship standings.');
+    }
+
+    initWeatherRoadIfEnabled();
+    finalizeStartRaceIntoPlanning();
+  }
+
+  function champDrawSponsorCard(){
+    ensureChamp();
+    if (!G.champ.sponsorDeck.length){
+      if (G.champ.sponsorUsed.length){
+        G.champ.sponsorDeck = G.champ.sponsorUsed.splice(0, G.champ.sponsorUsed.length);
+        shuffleInPlace(G.champ.sponsorDeck, rng);
+      }
+    }
+    const c = G.champ.sponsorDeck.pop();
+    return c ? deepClone(c) : null;
+  }
+
+  function champAwardSponsorToPlayer(p, reason, cornerIdx=null){
+    if (!G.modules.championship || !G.champ) return;
+    const card = champDrawSponsorCard();
+    if (!card){ log(`${p.name} would gain a Sponsorship, but the deck is empty.`); return; }
+    p.champ.sponsors.push(deepClone(card));
+    p.discard.push(card);
+    p.publicTopDiscard = card;
+    if (cornerIdx!=null){
+      log(`${p.name} earns a Sponsorship at Press Corner @${cornerIdx} (${reason}).`);
+    } else {
+      log(`${p.name} earns a Sponsorship (${reason}).`);
+    }
+  }
+
+  function isPressCorner(idx){
+    return !!(G.champ && (G.champ.pressCorners||[]).includes(idx));
+  }
+
+  function initChampBuildDraft(){
+    ensureChamp();
+    const live = G.players.filter(p=>!p.finished);
+    const order = live.slice().sort((a,b)=>{
+      // worst-to-best picks first (points asc; lastFinish desc)
+      const ap=a.champ?.points||0, bp=b.champ?.points||0;
+      if (ap!==bp) return ap-bp;
+      const al=a.champ?.lastFinish||999, bl=b.champ?.lastFinish||999;
+      if (al!==bl) return bl-al;
+      return a.name.localeCompare(b.name);
+    }).map(p=>p.id);
+
+    // Deal market
+    const need = order.length + 3;
+    const market = [];
+    while (market.length < need){
+      if (!G.champ.upgradeDeck.length){
+        if (G.champ.upgradeUsed.length){
+          G.champ.upgradeDeck = G.champ.upgradeUsed.splice(0, G.champ.upgradeUsed.length);
+          shuffleInPlace(G.champ.upgradeDeck, rng);
+        } else break;
+      }
+      const c = G.champ.upgradeDeck.pop();
+      if (!c) break;
+      market.push(deepClone(c));
+    }
+
+    G.draft = {
+      kind:'champBuild',
+      order,
+      pickerIdx: 0,
+      currentPlayerId: order[0],
+      market,
+      picks: {},
+      selectedId: null,
+      stage:'pick',
+      swapUsed:false
+    };
+
+    log('Build Your Car: each player drafts 1 Upgrade (worst→best). Last picker may optionally swap after picking.');
+  }
+
+  function renderChampDraftUI(){
+    const d = G.draft;
+    if (!d) return '';
+    const pid = d.currentPlayerId;
+    const p = G.players.find(x=>x.id===pid);
+    const isAI = !!p?.isAI;
+    const selected = d.selectedId;
+
+    const pickList = d.order.map(id=>{
+      const pp = G.players.find(x=>x.id===id);
+      const got = (d.picks[id]||[])[0];
+      return `<div class="small ${id===pid?'':'muted'}">
+        ${escapeHtml(pp?.name||id)}: ${got ? escapeHtml(got.name||'Upgrade') : '—'}
+      </div>`;
+    }).join('');
+
+    return `
+      <div class="row" style="justify-content:space-between">
+        <div>
+          <strong>Championship: Build Your Car</strong>
+          <div class="small muted">Current picker: <strong>${escapeHtml(p?.name||'')}</strong> ${isAI?'(AI)':''}</div>
+        </div>
+        <div class="tag2">Pick 1</div>
+      </div>
+
+      <div class="grid2" style="margin-top:10px">
+        <div>
+          <div class="small muted">Market (click one)</div>
+          <div class="market" style="margin-top:8px">
+            ${d.market.map(c=>{
+              const on = selected===c.id ? 'sel' : '';
+              return `<button class="cardBtn ${on}" data-upg="${c.id}" title="${escapeHtml(fmtUpgradeCardShort(c))}">
+                <div class="cardFace">
+                  <div class="cardTitle">${escapeHtml(c.type==='upgrade' ? `U${c.upgNum} ${c.name}` : `U${c.upgNum||''} Heat`)}</div>
+                  <div class="cardMid">${escapeHtml(upgradeCardFaceText(c))}</div>
+                  <div class="cardBot">${escapeHtml(fmtUpgradeCardBottom(c))}</div>
+                </div>
+              </button>`;
+            }).join('')}
+          </div>
+
+          <div class="row" style="margin-top:10px">
+            <button class="btn primary" data-act="draftPick" ${(!selected||isAI)?'disabled':''}>Pick selected</button>
+            <button class="btn" data-act="draftAuto" ${isAI?'':'disabled'}>AI pick</button>
+          </div>
+
+          <div class="note small" style="margin-top:10px">
+            <div><strong>Optional swap (last picker only)</strong></div>
+            <div class="muted">After all picks, the last picker may swap their chosen upgrade with one remaining in the market.</div>
+          </div>
+        </div>
+
+        <div class="note">
+          <div><strong>Draft order</strong></div>
+          <div class="small muted">Worst overall picks first.</div>
+          <div style="margin-top:6px">${pickList}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  function hookChampDraftUI(){
+    const root = $('#rightPanel');
+    const d = G.draft;
+    if (!d) return;
+
+    $$('.market .cardBtn', root).forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const id = btn.getAttribute('data-upg');
+        d.selectedId = id;
+        renderAll();
+      });
+    });
+
+    const btnPick = $('[data-act="draftPick"]', root);
+    if (btnPick) btnPick.addEventListener('click', ()=>{
+      champDraftPickSelected();
+    });
+
+    const btnAuto = $('[data-act="draftAuto"]', root);
+    if (btnAuto) btnAuto.addEventListener('click', ()=>{
+      champDraftAIPick();
+    });
+
+    // Auto-pick for AI (debounced to avoid deep synchronous recursion)
+    const pid = d.currentPlayerId;
+    const p = G.players.find(x=>x.id===pid);
+    if (p && p.isAI){
+      if (!d._aiPicking){
+        d._aiPicking = true;
+        setTimeout(()=>{ d._aiPicking = false; champDraftAIPick(); }, 120);
+      }
+    }
+}
+
+  function champDraftPickSelected(){
+    const d = G.draft;
+    if (!d) return;
+    const pid = d.currentPlayerId;
+    const p = G.players.find(x=>x.id===pid);
+    if (!p || p.isAI) return;
+    const selId = d.selectedId;
+    const card = d.market.find(c=>c.id===selId);
+    if (!card){ toast('Select a card.'); return; }
+    (d.picks[pid] ||= []).push(card);
+    d.market = d.market.filter(c=>c.id!==selId);
+    log(`${p.name} drafts ${card.name||'Upgrade'}.`);
+    d.selectedId = null;
+    champDraftAdvance();
+  }
+
+  function champDraftAIPick(){
+    const d = G.draft;
+    if (!d) return;
+    const pid = d.currentPlayerId;
+    const p = G.players.find(x=>x.id===pid);
+    if (!p || !p.isAI) return;
+    const choice = chooseUpgradeFromMarket(p, d.market);
+    if (!choice){ toast('No market cards.'); return; }
+    (d.picks[pid] ||= []).push(choice);
+    d.market = d.market.filter(c=>c.id!==choice.id);
+    log(`${p.name} drafts ${choice.name||'Upgrade'}.`);
+    champDraftAdvance();
+  }
+
+  function champDraftAdvance(){
+    const d = G.draft;
+    if (!d) return;
+    // next picker
+    if (d.pickerIdx >= d.order.length-1){
+      // all picked
+      champDraftFinalize();
+      return;
+    }
+    d.pickerIdx++;
+    d.currentPlayerId = d.order[d.pickerIdx];
+    renderAll();
+    hookChampDraftUI();
+  }
+
+  function champDraftFinalize(){
+    const d = G.draft;
+    if (!d) return;
+
+    // Last picker optional swap (human only for now; AI may choose to swap if better).
+    const lastId = d.order[d.order.length-1];
+    const lastP = G.players.find(x=>x.id===lastId);
+    const picked = (d.picks[lastId]||[])[0];
+
+    if (lastP && lastP.isAI && picked && d.market.length){
+      // simple: swap if best market score > picked score
+      const best = chooseUpgradeFromMarket(lastP, d.market);
+      const cand = best;
+      if (cand){
+        // compare scores by heuristic: reuse chooser ordering
+        const pool = [picked, cand].filter(Boolean);
+        const top = chooseUpgradeFromMarket(lastP, pool);
+        if (top && top.id !== picked.id){
+          // swap
+          d.market = d.market.filter(c=>c.id!==cand.id);
+          d.market.push(picked);
+          d.picks[lastId] = [cand];
+          log(`${lastP.name} (AI) swaps to ${cand.name||'Upgrade'}.`);
+        }
+      }
+    }
+
+    // Apply picks to persistent upgrades
+    for (const pid of d.order){
+      const p = G.players.find(x=>x.id===pid);
+      const c = (d.picks[pid]||[])[0];
+      if (p && c){
+        p.champ.upgrades.push(deepClone(c));
+      }
+    }
+
+    // Return remaining market to upgrade deck
+    if (d.market.length){
+      for (const c of d.market) G.champ.upgradeUsed.push(deepClone(c));
+    }
+    G.draft = null;
+
+    log('Build Your Car complete. Starting race setup...');
+    champBuildRaceDecksAndStart();
+  }
+
+  function champAwardPointsForRace(){
+    const pts = (G.champ?.points && G.champ.points.length) ? G.champ.points : CHAMP_DEFAULT_POINTS;
+    const order = G.finishedOrder.slice();
+    for (let i=0;i<order.length;i++){
+      const pid = order[i];
+      const p = G.players.find(x=>x.id===pid);
+      if (!p) continue;
+      const add = (i < pts.length) ? pts[i] : 0;
+      p.champ.points += add;
+      p.champ.lastFinish = i+1;
+    }
+  }
+
+  function champStandings(){
+    const arr = G.players.slice();
+    arr.sort((a,b)=>{
+      const ap=a.champ?.points||0, bp=b.champ?.points||0;
+      if (bp!==ap) return bp-ap;
+      const al=a.champ?.lastFinish||999, bl=b.champ?.lastFinish||999;
+      return al-bl;
+    });
+    return arr;
+  }
+
+  function champNextRace(){
+    if (!G.champ) return;
+    champAwardPointsForRace();
+    G.champ.raceIndex++;
+    if (G.champ.raceIndex >= G.champ.racesTotal){
+      log('Championship complete.');
+      G.phase = PHASE.FINISHED;
+      renderAll();
+      return;
+    }
+
+    // Reset race state
+    G.round = 1;
+    G.resolveOrder = [];
+    G.resolveIdx = 0;
+    G.planningIdx = 0;
+    G.finishedOrder = [];
+    for (const p of G.players){
+      p.finished = false;
+      p.removedFromTrack = false;
+      p.finishRank = null;
+      p.lap = 0;
+      p.gear = 1;
+      p._resolvedThisRound = false;
+      p._revealPrepared = false;
+      p._revealProcessed = false;
+      p._movedThisReveal = false;
+    }
+
+    // Load next track + press corners
+    const presetId = G.champ.schedule[G.champ.raceIndex];
+    const preset = getTrackPreset(presetId);
+    setTrack(preset.track, {persist:false, presetId, remapPositions:false});
+    champSetupPressCorners();
+
+    // Starting grid based on standings (will be placed during deck build)
+    log(`Race ${G.champ.raceIndex+1} begins on "${preset.name}".`);
+
+    // Run Build Your Car draft again
+    G.phase = PHASE.DRAFT;
+    initChampBuildDraft();
+    renderAll();
+  }
+
+function applyTrackBasics(){
     const spaces = parseInt($('#trkSpaces').value,10);
     const spots = parseInt($('#trkSpots').value,10);
     const finish = parseInt($('#trkFinish').value,10);
@@ -3448,7 +4588,7 @@ function upgradeCardFaceText(c){
     const t = normalizeTrack({...G.track, spacesCount:spaces, spotsPerSpace:spots, finishIndex:finish, lapsRequired:laps, startGridStartIndex:start});
     // Re-clip corners into new range
     t.corners = (G.track.corners||[]).filter(c => c.cornerLineIndex < t.spacesCount);
-    setTrack(t, {persist:true, presetId:'custom', remapPositions:true});
+    setTrack(t, {persist:true, presetId:(isUserPresetId(G.trackPresetId)?G.trackPresetId:'custom'), remapPositions:true});
   }
 
   function setSeedFromInput(){
@@ -3515,6 +4655,19 @@ function upgradeCardFaceText(c){
     const cbG = $('#modGarage'); if (cbG) G.modules.garage = !!cbG.checked;
     const cbW = $('#modWeather'); if (cbW) G.modules.weatherRoad = !!cbW.checked;
     const selU = $('#upgLevel'); if (selU) G.modules.upgradePool = selU.value;
+
+    const cbC = $('#modChamp'); if (cbC) G.modules.championship = !!cbC.checked;
+    // Championship overrides
+    if (G.modules.championship){
+      // Force advanced modules state
+      G.modules.garage = false;
+      G.modules.weatherRoad = true;
+      // Capture config from inputs (best-effort)
+      const heat = clamp(parseInt($('#cfgHeat').value||6,10), 0, 12);
+      const stress = clamp(parseInt($('#cfgStress').value||3,10), 0, 8);
+      startChampionshipFromSetup({heat, stress});
+      return;
+    }
 
     // Build player objects WITHOUT initial draw (so weather/draft can modify the deck first)
     const heat = clamp(parseInt($('#cfgHeat').value||6,10), 0, 12);
@@ -3725,7 +4878,7 @@ function upgradeCardFaceText(c){
     const playArea = p.play.map(c => `<span class="tag2">${escapeHtml(fmtCard(c))}</span>`).join(' ');
 
     const handHtml = p.hand.map(c => {
-      const cls = ['card', (G._discardPick?.has(c.id)?'selected':'')].join(' ');
+      const cls = ['card', (ensureDiscardPickSet().has(c.id)?'selected':'')].join(' ');
       const disabled = (step === STEP.DISCARD) ? isNonDiscardable(c) : !cardCanBePlayed(c);
       return `
         <div class="${cls} ${disabled?'disabled':''}" data-cid="${c.id}" title="${escapeHtml(cardTooltip(c))}">
@@ -4231,7 +5384,7 @@ if (G.activeStep === STEP.REACT){
 
     // Discard interactions
     if (G.activeStep === STEP.DISCARD){
-      if (!G._discardPick) G._discardPick = new Set();
+      ensureDiscardPickSet();
       const hand = $('#hand');
       hand.addEventListener('click', (e) => {
         const cardEl = e.target.closest('.card');
@@ -4239,14 +5392,15 @@ if (G.activeStep === STEP.REACT){
         const cid = cardEl.getAttribute('data-cid');
         const c = p.hand.find(x => x.id === cid);
         if (!c || isNonDiscardable(c)) return;
-        if (G._discardPick.has(cid)) G._discardPick.delete(cid);
-        else G._discardPick.add(cid);
+        const dp = ensureDiscardPickSet();
+        if (dp.has(cid)) dp.delete(cid);
+        else dp.add(cid);
         renderAll();
       });
 
       $('#btnConfirmDiscard').addEventListener('click', () => {
         pushHistory(`Discard chosen: ${p.name}`);
-        confirmDiscard(p, Array.from(G._discardPick));
+        confirmDiscard(p, Array.from(ensureDiscardPickSet()));
         G._discardPick = new Set();
         renderAll();
       });
@@ -4270,26 +5424,56 @@ if (G.activeStep === STEP.REACT){
       return `<li><strong>#${idx+1}</strong> ${escapeHtml(p?.name||'?')}</li>`;
     }).join('');
 
-    const standings = `
+    let champBlock = '';
+    if (G.modules.championship && G.champ){
+      const rows = champStandings().map((p, i)=>{
+        const pts = p.champ?.points||0;
+        return `<tr><td>${i+1}</td><td>${escapeHtml(p.name)}</td><td>${pts}</td></tr>`;
+      }).join('');
+      champBlock = `
+        <div class="note">
+          <div class="row" style="justify-content:space-between">
+            <strong>Championship Standings</strong>
+            <span class="tag2">Race ${G.champ.raceIndex+1}/${G.champ.racesTotal}</span>
+          </div>
+          <table class="tbl" style="margin-top:8px">
+            <thead><tr><th>#</th><th>Driver</th><th>Pts</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+          <div class="row" style="margin-top:10px">
+            <button class="btn primary" id="btnNextRace">${(G.champ.raceIndex+1 < G.champ.racesTotal) ? 'Next Race' : 'Finish Championship'}</button>
+          </div>
+          <div class="small muted" style="margin-top:6px">Points are awarded when you click “Next Race”.</div>
+        </div>
+      `;
+    }
+
+    const hall = `
       <div class="note">
-        <strong>Hall of Fame</strong>
+        <strong>Finish Order (this race)</strong>
         <ol>${order || '<li class="muted">—</li>'}</ol>
       </div>
     `;
 
     return `
-      ${standings}
+      ${champBlock}
+      ${hall}
       <div class="row">
         <button class="btn primary" id="btnRestart">Restart (keep track)</button>
         <button class="btn" id="btnBackSetup">Back to Setup</button>
-      </div>
-      <div class="note small" style="margin-top:10px">
-        <div><strong>Save</strong> exports full game state (including seed + RNG call count), so loading will reproduce outcomes deterministically.</div>
       </div>
     `;
   }
 
   function hookFinishedUI(){
+
+    const btnNext = $('#btnNextRace');
+    if (btnNext){
+      btnNext.addEventListener('click', ()=>{
+        pushHistory('Next Race');
+        champNextRace();
+      });
+    }
     $('#btnRestart').addEventListener('click', () => {
       pushHistory('Restart');
       // Restart with same players & track
@@ -4386,7 +5570,7 @@ if (G.activeStep === STEP.REACT){
       try{
         const obj = JSON.parse(raw);
         pushHistory('Apply track editor');
-        setTrack(obj, {persist:true, presetId:'custom', remapPositions:true});
+        setTrack(obj, {persist:true, presetId:(isUserPresetId(G.trackPresetId)?G.trackPresetId:'custom'), remapPositions:true});
         closeModal();
         renderAll();
       } catch(e){
@@ -4527,6 +5711,246 @@ if (G.activeStep === STEP.REACT){
     $('#modalBack').addEventListener('click', (e) => { if (e.target === $('#modalBack')) closeModal(); });
     $('#btnClearLog').addEventListener('click', () => { pushHistory('Clear log'); G.log=[]; rebuildLog(); });
     $('#zoom').addEventListener('input', () => renderTrack());
+
+    
+    // Map path editor controls
+    const btnPathEdit = $('#btnPathEdit');
+    const btnPathReset = $('#btnPathReset');
+    const pathStatus = $('#pathStatus');
+    const canvas = $('#trackCanvas');
+
+    function setPathEdit(on){
+      mapEditEnabled = !!on;
+      mapDragIndex = -1; mapDragging = false;
+      if (btnPathEdit) btnPathEdit.classList.toggle('primary', mapEditEnabled);
+      if (pathStatus){
+        pathStatus.textContent = mapEditEnabled ? 'Editing (drag / Shift+Click add / Alt+Click delete)' : '';
+      }
+      renderTrack();
+    }
+
+    function enforceClosedPoly(poly){
+      if (!Array.isArray(poly) || poly.length<4) return poly;
+      // Ensure last equals first (closed loop)
+      const a = poly[0], b = poly[poly.length-1];
+      if (!b || a[0]!==b[0] || a[1]!==b[1]){
+        poly = poly.slice();
+        poly.push([a[0], a[1]]);
+      }
+      return poly;
+    }
+
+    function saveCurrentPoly(poly){
+      poly = enforceClosedPoly(poly);
+      // clamp and normalize
+      poly = poly.map(p=>[clamp(+p[0],0,1), clamp(+p[1],0,1)]);
+      setPolyOverride(poly);
+      applyPolyOverrideToCurrentTrack();
+      // Persist into custom track too if we're on custom
+      if (G && G.trackPresetId==='custom'){
+        try{ localStorage.setItem(TRACK_CUSTOM_KEY, JSON.stringify(G.track)); }catch(e){}
+      }
+      renderTrack();
+    }
+
+    function defaultPolyForCurrentPreset(){
+      const pid = (G && G.trackPresetId) || 'custom';
+      const preset = TRACK_LIBRARY.find(x=>x.id===pid);
+      const base = preset?.track?.mapPoly || DEFAULT_TRACK.mapPoly;
+      return deepClone(base || []);
+    }
+
+    if (btnPathEdit){
+      btnPathEdit.addEventListener('click', ()=> setPathEdit(!mapEditEnabled));
+    }
+    if (btnPathReset){
+      btnPathReset.addEventListener('click', ()=> {
+        const poly = defaultPolyForCurrentPreset();
+        // remove override record
+        setPolyOverride(null);
+        if (G && G.track){
+          G.track.mapPoly = poly;
+          if (G.trackPresetId==='custom'){
+            try{ localStorage.setItem(TRACK_CUSTOM_KEY, JSON.stringify(G.track)); }catch(e){}
+          }
+        }
+        renderTrack();
+      });
+    }
+
+    function eventToNorm(e){
+      const rect = canvas.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / rect.width;
+      const y = (e.clientY - rect.top) / rect.height;
+      return [clamp(x,0,1), clamp(y,0,1), rect];
+    }
+
+    function nearestPointIndex(poly, x, y){
+      let best=-1, bestD=1e9;
+      for (let i=0;i<poly.length;i++){
+        const dx = poly[i][0]-x, dy = poly[i][1]-y;
+        const d = dx*dx + dy*dy;
+        if (d < bestD){ bestD=d; best=i; }
+      }
+      return {idx:best, d2:bestD};
+    }
+
+    function insertPointOnNearestSegment(poly, x, y){
+      // find nearest segment (i..i+1)
+      let bestSeg=0, bestD=1e9, bestT=0;
+      for (let i=0;i<poly.length-1;i++){
+        const ax=poly[i][0], ay=poly[i][1];
+        const bx=poly[i+1][0], by=poly[i+1][1];
+        const vx=bx-ax, vy=by-ay;
+        const wx=x-ax, wy=y-ay;
+        const vv = vx*vx+vy*vy || 1e-9;
+        let t = (wx*vx+wy*vy)/vv;
+        t = clamp(t,0,1);
+        const px = ax + vx*t, py = ay + vy*t;
+        const dx=x-px, dy=y-py;
+        const d = dx*dx+dy*dy;
+        if (d<bestD){ bestD=d; bestSeg=i; bestT=t; }
+      }
+      // Insert after bestSeg, but avoid inserting between last and first duplicate closure point: insert before last
+      const insertAt = Math.min(bestSeg+1, poly.length-1);
+      const out = poly.slice(0, insertAt).concat([[x,y]], poly.slice(insertAt));
+      return out;
+    }
+
+    if (canvas){
+      canvas.addEventListener('pointerdown', (e)=>{
+        if (!mapEditEnabled) return;
+        e.preventDefault();
+        canvas.setPointerCapture?.(e.pointerId);
+        const [x,y,rect] = eventToNorm(e);
+        let poly = deepClone(getPolyOverride() || (G?.track?.mapPoly) || DEFAULT_TRACK.mapPoly || []);
+        if (!poly || poly.length<4) poly = defaultPolyForCurrentPreset();
+        poly = enforceClosedPoly(poly);
+
+        // Threshold in normalized units based on canvas size
+        const threshPx = 18;
+        const threshN = threshPx / Math.min(rect.width, rect.height);
+        const {idx, d2} = nearestPointIndex(poly, x, y);
+
+        if (e.altKey){
+          // delete point (not if would drop below 4, and avoid deleting last closure point)
+          if (idx>0 && idx<poly.length-1 && poly.length>5){
+            poly.splice(idx,1);
+            poly = enforceClosedPoly(poly);
+            saveCurrentPoly(poly);
+          }
+          return;
+        }
+        if (e.shiftKey){
+          // insert point on nearest segment (avoid adding if click is near existing point)
+          if (Math.sqrt(d2) > threshN){
+            poly = insertPointOnNearestSegment(poly, x, y);
+            poly = enforceClosedPoly(poly);
+            saveCurrentPoly(poly);
+            mapDragIndex = Math.max(0, Math.min(poly.length-2, idx+1));
+            mapDragging = true;
+          }
+          return;
+        }
+
+        if (Math.sqrt(d2) <= threshN){
+          mapDragIndex = idx;
+          mapDragging = true;
+        } else {
+          mapDragIndex = -1;
+          mapDragging = false;
+        }
+        renderTrack();
+      });
+
+      canvas.addEventListener('pointermove', (e)=>{
+        if (!mapEditEnabled || !mapDragging || mapDragIndex<0) return;
+        e.preventDefault();
+        const [x,y] = eventToNorm(e);
+        let poly = deepClone(getPolyOverride() || (G?.track?.mapPoly) || defaultPolyForCurrentPreset());
+        poly = enforceClosedPoly(poly);
+        poly[mapDragIndex] = [x,y];
+        // If editing the first point, also move the last closure point.
+        if (mapDragIndex===0) poly[poly.length-1] = [x,y];
+        // If editing the last closure point, mirror to first.
+        if (mapDragIndex===poly.length-1) poly[0] = [x,y];
+
+        // clamp and store without spamming localStorage too hard: store live but ok
+        saveCurrentPoly(poly);
+      });
+
+      function stopDrag(e){
+        if (!mapEditEnabled) return;
+        if (mapDragging){
+          mapDragging = false;
+          mapDragIndex = -1;
+          renderTrack();
+        }
+      }
+      canvas.addEventListener('pointerup', stopDrag);
+      canvas.addEventListener('pointercancel', stopDrag);
+      canvas.addEventListener('pointerleave', stopDrag);
+    }
+
+// Background image loader controls (per track). This does NOT bundle copyrighted images.
+    const bgFile = $('#trackBgFile');
+    const btnLoad = $('#btnBgLoad');
+    const btnClear = $('#btnBgClear');
+    const op = $('#bgOpacity');
+    const sc = $('#bgScale');
+    const dx = $('#bgDx');
+    const dy = $('#bgDy');
+    if (btnLoad && bgFile){
+      btnLoad.addEventListener('click', ()=> bgFile.click());
+      bgFile.addEventListener('change', (e)=> {
+        const f = e.target.files && e.target.files[0];
+        if (!f) return;
+        const reader = new FileReader();
+        reader.onload = ()=> {
+          const dataUrl = String(reader.result||'');
+          const img = new Image();
+          img.onload = ()=> {
+            setTrackBg({ dataUrl, w: img.naturalWidth, h: img.naturalHeight, opacity: 0.85, scale: 1.0, dx: 0, dy: 0 });
+          };
+          img.src = dataUrl;
+        };
+        reader.readAsDataURL(f);
+        e.target.value = '';
+      });
+    }
+    if (btnClear){
+      btnClear.addEventListener('click', ()=> setTrackBg(null));
+    }
+    if (op){
+      op.addEventListener('input', ()=> {
+        const bg = getTrackBg(); if (!bg) return;
+        bg.opacity = clamp(parseInt(op.value,10)/100, 0, 1);
+        setTrackBg(bg);
+      });
+    }
+    if (sc){
+      sc.addEventListener('input', ()=> {
+        const bg = getTrackBg(); if (!bg) return;
+        bg.scale = clamp(parseInt(sc.value,10)/100, 0.5, 2.0);
+        setTrackBg(bg);
+      });
+    }
+
+    if (dx){
+      dx.addEventListener('input', ()=> {
+        const bg = getTrackBg(); if (!bg) return;
+        bg.dx = clamp(parseInt(dx.value,10)/100, -0.5, 0.5);
+        setTrackBg(bg);
+      });
+    }
+    if (dy){
+      dy.addEventListener('input', ()=> {
+        const bg = getTrackBg(); if (!bg) return;
+        bg.dy = clamp(parseInt(dy.value,10)/100, -0.5, 0.5);
+        setTrackBg(bg);
+      });
+    }
+    updateBgUI();
   // Track view mode (Map/Strip)
   const tvm = $('#trackViewMode');
   if (tvm){
@@ -4549,7 +5973,10 @@ if (G.activeStep === STEP.REACT){
   /***********************
    * Init
    ***********************/
+  loadBgStore();
+    loadPolyStore();
   hookHeader();
+  updateBgUI();
   newGame();
 
 })();
