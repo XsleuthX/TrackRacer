@@ -465,16 +465,17 @@
     return arr;
   }
 
-  function shuffleInPlace(arr, rng){
+  function shuffleInPlace(arr, rngFn){
+    const rf = (typeof rngFn === 'function') ? rngFn : (typeof rng === 'function' ? rng : Math.random);
     for (let i=arr.length-1;i>0;i--){
-      const j = Math.floor(rng()*(i+1));
+      const j = Math.floor(rf()*(i+1));
       [arr[i], arr[j]] = [arr[j], arr[i]];
     }
+  }
 
   // Convenience wrapper used by some modules
-  function shuffle(arr){
-    shuffleInPlace(arr, rng);
-  }
+  function shuffle(arr, rngFn){
+    shuffleInPlace(arr, rngFn);
   }
 
   /***********************
@@ -509,34 +510,129 @@
 
     { id:"usa", name:"USA (schematic)", track: {
       id:"usa", name:"USA (schematic)",
-      spacesCount: 64, spotsPerSpace: 2, finishIndex: 0, lapsRequired: 2, startGridStartIndex: 2,
-      corners: [{cornerLineIndex: 10, speedLimit: 8},{cornerLineIndex: 24, speedLimit: 6},{cornerLineIndex: 40, speedLimit: 7},{cornerLineIndex: 54, speedLimit: 9}],
-      mapPoly: [[0.12,0.76],[0.86,0.76],[0.92,0.68],[0.92,0.30],[0.86,0.22],[0.24,0.22],[0.18,0.30],[0.18,0.54],[0.40,0.58],[0.46,0.44],[0.30,0.38],[0.12,0.44],[0.12,0.76]],
-      mapTheme:"desert"
+      "spacesCount": 69, "spotsPerSpace": 2, "finishIndex": 0, "lapsRequired": 2,
+  "corners": [
+    { "cornerLineIndex": 14, "speedLimit": 7 }, { "cornerLineIndex": 33, "speedLimit": 3 },
+    { "cornerLineIndex": 50, "speedLimit": 3 }, { "cornerLineIndex": 59, "speedLimit": 2 }],
+  "startGridStartIndex": 2,
+  "mapPoly": [
+    [ 0.6674874407415269, 0.18741976893453144 ], [ 0.6756385763815185, 0.18356867779204109 ],
+    [ 0.7997169744569448, 0.1797175866495507  ], [ 0.9029646925635039, 0.2926829268292683  ],
+    [ 0.9699851411589896, 0.7355584082156611  ], [ 0.9337578716479162, 0.8921694480102695  ],
+    [ 0.8594919691502159, 0.938382541720154   ], [ 0.34687610556852755, 0.9255455712451861 ],
+    [ 0.1449090780442935, 0.9486521181001284  ], [ 0.06973749380881625, 0.865211810012837  ],
+    [ 0.11773862591098846, 0.7625160462130937 ], [ 0.22008066227977074, 0.7124518613607189 ],
+    [ 0.28619542913747964, 0.55198973042362   ], [ 0.3369136064529824, 0.28498074454428757 ],
+    [ 0.42657609849288897, 0.07958921694480103], [ 0.4908795018750442, 0.08087291399229782 ],
+    [ 0.5325408618127786, 0.18613607188703465 ], [ 0.3668011037996179, 0.5866495507060334  ],
+    [ 0.43382155239510367, 0.637997432605905  ], [ 0.5352579070261091, 0.38767650834403083 ],
+    [ 0.6176749451638011, 0.23491655969191272 ], [ 0.6674874407415269, 0.18741976893453144 ]
+  ],
+  "mapTheme": "desert"
     }},
 
     { id:"france", name:"France (schematic)", track: {
       id:"france", name:"France (schematic)",
-      spacesCount: 66, spotsPerSpace: 2, finishIndex: 0, lapsRequired: 2, startGridStartIndex: 2,
-      corners: [{cornerLineIndex: 14, speedLimit: 7},{cornerLineIndex: 30, speedLimit: 5},{cornerLineIndex: 46, speedLimit: 8},{cornerLineIndex: 58, speedLimit: 7}],
-      mapPoly: [[0.16,0.78],[0.80,0.78],[0.88,0.66],[0.78,0.50],[0.88,0.34],[0.80,0.22],[0.28,0.22],[0.18,0.34],[0.26,0.48],[0.14,0.60],[0.16,0.78]],
-      mapTheme:"euro"
+      "spacesCount": 60,
+  "spotsPerSpace": 2,
+  "finishIndex": 0,
+  "lapsRequired": 2,
+  "startGridStartIndex": 2,
+  "corners": [
+    { "cornerLineIndex": 12, "speedLimit": 5 },
+    { "cornerLineIndex": 20, "speedLimit": 2 },
+    { "cornerLineIndex": 27, "speedLimit": 4 },
+    { "cornerLineIndex": 39, "speedLimit": 3 },
+    { "cornerLineIndex": 47, "speedLimit": 4 }
+  ],
+  "mapPoly": [
+    [ 0.4908795018750442, 0.889602053915276    ], [ 0.39125451071959244, 0.8690629011553274  ],
+    [ 0.3015920186796858, 0.8087291399229781   ], [ 0.1920045284086889, 0.6598202824133504   ],
+    [ 0.14943748673317767, 0.5532734274711169  ], [ 0.09600226420434445, 0.4672657252888318  ],
+    [ 0.09600226420434445, 0.36970474967907574 ], [ 0.14038066935540933, 0.30166880616174585 ],
+    [ 0.1947215736220194, 0.2952503209242619   ], [ 0.26808179438194296, 0.251604621309371   ],
+    [ 0.3432533786174202, 0.19127086007702182  ], [ 0.3803863298662704, 0.13478818998716302  ],
+    [ 0.43653859760843416, 0.20282413350449294 ], [ 0.3450647420929739, 0.355584082156611    ],
+    [ 0.2979692917285785, 0.46983311938382544  ], [ 0.3034033821552395, 0.5840821566110398   ],
+    [ 0.35412155947074225, 0.6495507060333762  ], [ 0.4057454185240218, 0.6405648267008985   ],
+    [ 0.45736927757730134, 0.5994865211810013  ], [ 0.5098988183683577, 0.5391527599486521   ],
+    [ 0.5542772235194227, 0.4544287548138639   ], [ 0.5977499469327107, 0.3170731707317073   ],
+    [ 0.5950329017193802, 0.24261874197689345  ], [ 0.590504493030496, 0.17329910141206675   ],
+    [ 0.6249203990660157, 0.10654685494223363  ], [ 0.6846953937592868, 0.10141206675224647  ],
+    [ 0.716394254581476, 0.14377406931964057   ], [ 0.7408476615014505, 0.2913992297817715   ],
+    [ 0.7779806127503007, 0.3478818998716303   ], [ 0.8875681030212976, 0.3940949935815148   ],
+    [ 0.9219840090568174, 0.5096277278562259   ], [ 0.885756739545744, 0.5879332477535302    ],
+    [ 0.7200169815325833, 0.8010269576379975   ], [ 0.606806764310479, 0.8767650834403081    ],
+    [ 0.4908795018750442, 0.889602053915276    ]
+  ],
+  "mapTheme": "euro"
     }},
 
     { id:"italy", name:"Italy (schematic)", track: {
       id:"italy", name:"Italy (schematic)",
-      spacesCount: 68, spotsPerSpace: 2, finishIndex: 0, lapsRequired: 2, startGridStartIndex: 2,
-      corners: [{cornerLineIndex: 12, speedLimit: 8},{cornerLineIndex: 26, speedLimit: 6},{cornerLineIndex: 38, speedLimit: 6},{cornerLineIndex: 52, speedLimit: 9}],
-      mapPoly: [[0.14,0.74],[0.86,0.74],[0.92,0.64],[0.78,0.50],[0.92,0.36],[0.84,0.24],[0.52,0.24],[0.44,0.34],[0.36,0.24],[0.18,0.24],[0.12,0.36],[0.22,0.50],[0.12,0.64],[0.14,0.74]],
-      mapTheme:"euro"
+       "spacesCount": 54,
+  "spotsPerSpace": 2,
+  "finishIndex": 0,
+  "lapsRequired": 2,
+  "startGridStartIndex": 2,
+  "corners": [
+    { "cornerLineIndex": 10, "speedLimit": 5 },
+    { "cornerLineIndex": 19, "speedLimit": 2 },
+    { "cornerLineIndex": 26, "speedLimit": 3 }
+  ],
+  "mapPoly": [
+    [ 0.7901347470099881, 0.364461738002594   ], [ 0.8075103953817355, 0.5214007782101168  ],
+    [ 0.7919637626280668, 0.6446173800259404  ], [ 0.6840518411614249, 0.8132295719844358  ],
+    [ 0.5889430290213338, 0.9247730220492867  ], [ 0.5258419901976195, 0.9053177691309987  ],
+    [ 0.49749224811739995, 0.8326848249027238 ], [ 0.4270751468213709, 0.3865110246433204  ],
+    [ 0.3612305845705386, 0.41115434500648507 ], [ 0.36214509237957787, 0.4474708171206226 ],
+    [ 0.3987254047411514, 0.6705577172503242  ], [ 0.4225026077761742, 0.8132295719844358  ],
+    [ 0.40146892816826946, 0.8754863813229572 ], [ 0.36397410799765656, 0.9156939040207522 ],
+    [ 0.3209922409728077, 0.8962386511024644  ], [ 0.2908134832745095, 0.8067444876783398  ],
+    [ 0.2322849834959919, 0.4150453955901427  ], [ 0.23594301473214924, 0.311284046692607  ],
+    [ 0.26246374119429006, 0.2127107652399481 ], [ 0.33013731906320104, 0.125810635538262  ],
+    [ 0.4005544203592301, 0.08300907911802853 ], [ 0.5130388808710686, 0.06614785992217899 ],
+    [ 0.6621036537444808, 0.10505836575875487 ], [ 0.7389223097037853, 0.20233463035019456 ],
+    [ 0.7901347470099881, 0.364461738002594   ]
+  ],
+  "mapTheme": "euro"
     }},
 
     { id:"gb", name:"Great Britain (schematic)", track: {
       id:"gb", name:"Great Britain (schematic)",
-      spacesCount: 70, spotsPerSpace: 2, finishIndex: 0, lapsRequired: 2, startGridStartIndex: 2,
-      corners: [{cornerLineIndex: 16, speedLimit: 7},{cornerLineIndex: 32, speedLimit: 7},{cornerLineIndex: 44, speedLimit: 5},{cornerLineIndex: 60, speedLimit: 8}],
-      mapPoly: [[0.14,0.76],[0.86,0.76],[0.92,0.66],[0.82,0.56],[0.92,0.46],[0.82,0.36],[0.92,0.26],[0.76,0.20],[0.22,0.20],[0.10,0.34],[0.24,0.44],[0.12,0.54],[0.24,0.64],[0.14,0.76]],
-      mapTheme:"classic"
+      "spacesCount": 63,
+  "spotsPerSpace": 2,
+  "finishIndex": 0,
+  "lapsRequired": 2,
+  "startGridStartIndex": 2,
+  "corners": [
+    { "cornerLineIndex": 15, "speedLimit": 10 },
+    { "cornerLineIndex": 30, "speedLimit": 6  },
+    { "cornerLineIndex": 37, "speedLimit": 5  },
+    { "cornerLineIndex": 43, "speedLimit": 4  },
+    { "cornerLineIndex": 48, "speedLimit": 3  }
+  ],
+  "mapPoly": [
+    [ 0.2926424988925882, 0.2230869001297017  ], [ 0.3401969049626338, 0.11932555123216602 ],
+    [ 0.4096994984496235, 0.0648508430609598  ], [ 0.8340311218438764, 0.0648508430609598  ],
+    [ 0.9044482231399054, 0.10116731517509728 ], [ 0.943772058928597,  0.17380025940337224 ],
+    [ 0.949259105782833,  0.3022049286640726  ], [ 0.9346269808382036, 0.4487678339818418  ],
+    [ 0.9071917465670234, 0.6355382619974059  ], [ 0.8495777545975451, 0.7989623865110247  ],
+    [ 0.7773316376834374, 0.9130998702983139  ], [ 0.7270337081862738, 0.920881971465629   ],
+    [ 0.6794793021162282, 0.8845654993514915  ], [ 0.6621036537444808, 0.8313878080415046  ],
+    [ 0.6602746381264021, 0.7444876783398184  ], [ 0.6822228255433462, 0.6212710765239948  ],
+    [ 0.7160596144778018, 0.5356679636835279  ], [ 0.703256505151251,  0.4565499351491569  ],
+    [ 0.6666761927896775, 0.4293125810635538  ], [ 0.6209508023377106, 0.437094682230869   ],
+    [ 0.5770544275038224, 0.48638132295719844 ], [ 0.519440435534344,  0.5071335927367056  ],
+    [ 0.4801165997456525, 0.5019455252918288  ], [ 0.4444507951931183, 0.5421530479896238  ],
+    [ 0.4225026077761742, 0.5875486381322957  ], [ 0.4508523498563937, 0.6783398184176395  ],
+    [ 0.5404741151422489, 0.7146562905317769  ], [ 0.6054041695840419, 0.7782101167315175  ],
+    [ 0.570652872840547,  0.874189364461738   ], [ 0.5258419901976195, 0.8404669260700389  ],
+    [ 0.43073317805752825, 0.7769130998702983 ], [ 0.36031607676149924, 0.7185473411154345 ],
+    [ 0.29904405355586355, 0.6342412451361867 ], [ 0.2560621865310147, 0.4889753566796368  ],
+    [ 0.2560621865310147, 0.377431906614786   ], [ 0.2926424988925882, 0.2230869001297017  ]
+  ],
+  "mapTheme": "classic"
     }},
 
     { id:"custom", name:"Custom (your edits)", track: null }
@@ -4999,14 +5095,16 @@ function applyTrackBasics(){
       `;
     }
     if (a.type==='salvage'){
-      const list = p.discard.slice().reverse().slice(0, 18); // show up to 18 most recent
+      // Rules: you may look through your discard pile and choose up to # cards there.
+      // Show the full discard pile (most recent first) for accurate Salvage choices.
+      const list = p.discard.slice().reverse();
       const max = a.val;
       return `
         <div class="pill">Upgrade</div>
         <div class="small" style="margin-top:6px"><strong>${cardLabel}</strong></div>
         <div class="small muted" style="margin-top:4px">Salvage ${a.val}: choose up to ${a.val} card(s) from your discard to shuffle into your draw deck.</div>
-        <div class="small muted" style="margin-top:6px">Showing up to 18 most recent discard cards:</div>
-        <div class="note" style="margin-top:8px;max-height:140px;overflow:auto">
+        <div class="small muted" style="margin-top:6px">Discard pile (most recent first):</div>
+        <div class="note" style="margin-top:8px;max-height:220px;overflow:auto">
           ${list.length?list.map(c=>`<label class="row small" style="gap:8px"><input type="checkbox" class="actPick" value="${c.id}"> ${escapeHtml(fmtCard(c))}</label>`).join(''):`<div class="small muted">Discard is empty.</div>`}
         </div>
         <div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap">
@@ -5348,6 +5446,22 @@ if (G.activeStep === STEP.REACT){
     advanceReactAction(p);
     renderAll();
   });
+
+  // Salvage UX: prevent selecting more than allowed by disabling extra checkboxes.
+  const aNow = currentReactAction(p);
+  if (aNow && aNow.type==='salvage'){
+    const maxPick = aNow.val|0;
+    const refreshPickLimits = () => {
+      const picks = $$('.actPick');
+      const selected = picks.filter(x=>x.checked).length;
+      const lock = selected >= maxPick;
+      picks.forEach(cb => {
+        if (!cb.checked) cb.disabled = lock;
+      });
+    };
+    $$('.actPick').forEach(cb => cb.addEventListener('change', refreshPickLimits));
+    refreshPickLimits();
+  }
 
   if (skipBtn) skipBtn.addEventListener('click', () => {
     const a = currentReactAction(p);
