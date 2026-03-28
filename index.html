@@ -5005,6 +5005,8 @@ function upgradeCardFaceText(c){
         raceIndex: 0,
         racesTotal: clamp((G.champConfig.races)||4, 1, 12),
         points: (G.champConfig.points)||[14,10,6,3,2,1],
+        awardedRaceIndex: -1,
+        isComplete: false,
         standings: [],
         results: [],
         sponsorDeck: [],
@@ -5069,6 +5071,7 @@ function startChampionshipFromSetup({heat, stress}){
     G.round = 1;
     G.startedCount = 0;
     G.finishedOrder = [];
+    G.champ.awardedRaceIndex = -1;
     G.resolveOrder = [];
     G.resolveIdx = 0;
     G.activeStep = STEP.REVEAL_MOVE;
@@ -5444,17 +5447,27 @@ function startChampionshipFromSetup({heat, stress}){
     champBuildRaceDecksAndStart();
   }
 
-  function champAwardPointsForRace(){
+  function champPendingPointsMap(){
     const pts = (G.champ?.points && G.champ.points.length) ? G.champ.points : CHAMP_DEFAULT_POINTS;
+    const map = {};
+    const order = G.finishedOrder.slice();
+    for (let i=0;i<order.length;i++) map[order[i]] = (i < pts.length) ? pts[i] : 0;
+    return map;
+  }
+
+  function champAwardPointsForRace(){
+    if (!G.champ || G.champ.awardedRaceIndex === G.champ.raceIndex) return;
+    const pending = champPendingPointsMap();
     const order = G.finishedOrder.slice();
     for (let i=0;i<order.length;i++){
       const pid = order[i];
       const p = G.players.find(x=>x.id===pid);
       if (!p) continue;
-      const add = (i < pts.length) ? pts[i] : 0;
+      const add = pending[pid] || 0;
       p.champ.points += add;
       p.champ.lastFinish = i+1;
     }
+    G.champ.awardedRaceIndex = G.champ.raceIndex;
   }
 
   function champStandings(){
@@ -5474,6 +5487,7 @@ function startChampionshipFromSetup({heat, stress}){
     G.champ.raceIndex++;
     if (G.champ.raceIndex >= G.champ.racesTotal){
       log('Championship complete.');
+      G.champ.isComplete = true;
       G.phase = PHASE.FINISHED;
       renderAll();
       return;
