@@ -196,6 +196,14 @@ body {
   border-bottom: 1px solid var(--border);
   background: linear-gradient(180deg, rgba(20,15,11,.96), rgba(14,11,9,.98));
 }
+#footerSplitter {
+  height: 8px;
+  cursor: row-resize;
+  background: linear-gradient(90deg, rgba(255,255,255,.02), rgba(255,255,255,.08), rgba(255,255,255,.02));
+  border-top: 1px solid rgba(255,255,255,.03);
+  border-bottom: 1px solid rgba(0,0,0,.35);
+}
+#footerSplitter:hover, #footerSplitter.dragging { background: linear-gradient(90deg, rgba(232,184,75,.16), rgba(232,184,75,.28), rgba(232,184,75,.16)); }
 #trackView {
   flex: 1;
   position: relative;
@@ -255,22 +263,51 @@ body {
 
 /* Car tokens */
 .car {
-  width: 32px; height: 32px; border-radius: 10px;
-  display: flex; align-items: center; justify-content: center;
-  font-weight: 900; font-size: 12px; letter-spacing: -.3px;
-  box-shadow: 0 4px 12px rgba(0,0,0,.4);
-  border: 2px solid rgba(255,255,255,.22);
   position: relative;
-  transition: box-shadow .15s;
+  width: 46px; height: 18px;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 900; font-size: 8px; letter-spacing: .2px;
+  color: rgba(255,255,255,.95);
+  text-shadow: 0 1px 2px rgba(0,0,0,.55);
+  border: 1px solid rgba(255,255,255,.35);
+  background: linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,.02));
+  clip-path: polygon(4% 18%, 18% 18%, 26% 0%, 78% 0%, 86% 18%, 96% 18%, 96% 38%, 84% 38%, 73% 100%, 27% 100%, 16% 38%, 4% 38%);
+  box-shadow: 0 8px 18px rgba(0,0,0,.34), inset 0 1px 0 rgba(255,255,255,.24);
+  transition: box-shadow .15s, transform .12s;
+}
+.car::before {
+  content: "";
+  position: absolute;
+  left: 14px; top: 3px;
+  width: 17px; height: 8px;
+  border-radius: 7px 7px 4px 4px;
+  background: rgba(18,18,18,.52);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.16);
+}
+.car::after {
+  content: "";
+  position: absolute;
+  right: -1px; top: 6px;
+  width: 11px; height: 4px;
+  border-radius: 2px;
+  background: rgba(255,255,255,.26);
 }
 .car.active-car {
-  box-shadow: 0 0 0 2px var(--gold), 0 4px 14px rgba(0,0,0,.5);
+  box-shadow: 0 0 0 2px var(--gold), 0 8px 18px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.24);
+  transform: translateY(-1px);
 }
-.car.ai::after {
+.car.ai {
+  filter: saturate(.85) brightness(.92);
+}
+.car.ai .car-label, .car .car-label {
+  position: relative;
+  z-index: 2;
+}
+.carWrap { position: relative; display: flex; align-items: center; justify-content: center; min-height: 30px; }
+.carWrap.ai-tag::after {
   content: "AI"; position: absolute; bottom: -12px;
   font-size: 9px; font-weight: 700; color: var(--muted);
 }
-.carWrap { position: relative; display: flex; align-items: center; justify-content: center; }
 
 /* Space badges */
 .badge {
@@ -685,6 +722,8 @@ select option { background: #1f1710; }
   padding: 10px 12px 12px;
   border-top: 1px solid var(--border);
   background: linear-gradient(180deg, rgba(20,15,11,.96), rgba(14,11,9,.98));
+  align-items: end;
+  margin-top: auto;
 }
 #logPanel, #standingsDock, #actionDock { min-width: 0; }
 .dock-pane {
@@ -703,6 +742,10 @@ select option { background: #1f1710; }
   color: var(--muted);
 }
 .dock-pane .dock-bd { padding: 10px 12px; }
+.dock-collapsed .dock-bd, #logPanel.log-collapsed .log { display:none; }
+#logPanel.log-collapsed, .dock-collapsed { height: 48px !important; max-height: 48px !important; align-self: end; }
+#trackFooter > *.log-collapsed, #trackFooter > *.dock-collapsed { align-self: end; }
+.dock-hd .dock-toggle, #logHeader .dock-toggle { margin-left:auto; }
 .standings-strip { display:flex; flex-direction:column; gap:6px; }
 #standingsDock .dock-bd { overflow-y:auto; height: calc(220px - 39px); max-height: calc(220px - 39px); }
 .phase-rail { display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap:8px; margin-bottom:10px; }
@@ -785,6 +828,7 @@ select option { background: #1f1710; }
 @media (max-width: 900px) {
   #app { grid-template-columns: 1fr; grid-template-rows: auto auto auto; height: auto; }
   #panelSplitter { display:none; }
+  #footerSplitter { display:none; }
   #rightPanel { grid-column: 1; }
   #trackPanel { grid-row: 1; border-right: none; border-bottom: 1px solid var(--border); min-height: 380px; }
   #rightPanel { grid-row: 2; border-bottom: 1px solid var(--border); max-height: 60vh; }
@@ -867,11 +911,11 @@ select option { background: #1f1710; }
       <canvas class="trackCanvas" id="trackCanvas"></canvas>
       <div class="trackGrid" id="trackGrid"></div>
     </div>
+    <div id="footerSplitter" aria-label="Resize track viewport vertically" role="separator"></div>
     <div id="trackFooter">
       <section id="logPanel">
         <div id="logHeader">
-          <span>RACE LOG</span>
-          <button class="btn" style="font-size:11px;padding:3px 8px" id="btnClearLog">Clear</button>
+          <span>RACE LOG</span><div class="row" style="gap:6px"><button class="btn dock-toggle" style="font-size:11px;padding:3px 8px" id="btnToggleLogDock">Collapse</button><button class="btn" style="font-size:11px;padding:3px 8px" id="btnClearLog">Clear</button></div>
         </div>
         <div class="log" id="log"></div>
       </section>
@@ -1764,6 +1808,7 @@ function newGame(){
       legends: null,
       legendsConfig: {enabled:false, pro:false, cards: defaultLegendsDeck()},
       visuals: { cardArt: { enabled:false, basePath:'./card-art/' } },
+      ui: { standingsCollapsed:false, logCollapsed:false },
 
       seed,
       rngCalls: 0,
@@ -3391,7 +3436,8 @@ function autoResolveUpgradeActionsAI(p){
       const token = document.createElement('div');
       token.className = 'car' + (p.isAI ? ' ai' : '');
       token.style.background = p.color;
-      token.textContent = p.name.slice(0,1).toUpperCase();
+      token.innerHTML = '<span class="car-label">'+escapeHtml(p.name.slice(0,1).toUpperCase())+'</span>';
+      if (p.isAI) wrap.classList.add('ai-tag');
       if (p.finished){
         token.style.outline = '2px solid rgba(125,255,155,.7)';
         token.style.opacity = '0.85';
@@ -6796,7 +6842,7 @@ function openLegendsDeckEditor(){
         +'<span class="standing-meta">L'+p.lap+(isFin?' · FIN':' · G'+p.gear)+'</span>'
       +'</div>';
     }).join('');
-    return '<div class="dock-pane"><div class="dock-hd">STANDINGS STRIP</div><div class="dock-bd"><div class="standings-strip">'+rows+'</div></div></div>';
+    return '<div class="dock-pane'+(G.ui&&G.ui.standingsCollapsed?' dock-collapsed':'')+'"><div class="dock-hd"><span>STANDINGS STRIP</span><button class="btn dock-toggle" id="btnToggleStandingsDock">'+((G.ui&&G.ui.standingsCollapsed)?'Expand':'Collapse')+'</button></div><div class="dock-bd"><div class="standings-strip">'+rows+'</div></div></div>';
   }
 
   function renderActionDock(){
@@ -6838,13 +6884,19 @@ function openLegendsDeckEditor(){
     el = $('#dockBtnSkipDiscard'); if (el) el.addEventListener('click', function(){ var p=activePlayer(); if (!p) return; ensureDiscardPickSet().clear(); confirmDiscard(p, []); });
     el = $('#dockBtnRestart'); if (el) el.addEventListener('click', function(){ newGame(); });
     el = $('#btnToggleActionDock'); if (el) el.addEventListener('click', function(){ actionBarCollapsed = !actionBarCollapsed; renderFooterDocks(); });
+    el = $('#btnToggleStandingsDock'); if (el) el.addEventListener('click', function(){ if (!G.ui) G.ui={}; G.ui.standingsCollapsed = !G.ui.standingsCollapsed; renderFooterDocks(); });
+    el = $('#btnToggleLogDock'); if (el) el.addEventListener('click', function(){ if (!G.ui) G.ui={}; G.ui.logCollapsed = !G.ui.logCollapsed; renderFooterDocks(); });
   }
 
   function renderFooterDocks(){
     var s = $('#standingsDock');
     var a = $('#actionDock');
+    var logPanel = $('#logPanel');
     if (s) s.innerHTML = renderStandingsDock();
     if (a) a.innerHTML = renderActionDock();
+    if (logPanel) logPanel.classList.toggle('log-collapsed', !!(G.ui&&G.ui.logCollapsed));
+    const logBtn = $('#btnToggleLogDock');
+    if (logBtn) logBtn.textContent = (G.ui&&G.ui.logCollapsed) ? 'Expand' : 'Collapse';
     hookFooterDocks();
   }
 
@@ -7149,6 +7201,38 @@ function openLegendsDeckEditor(){
   /***********************
    * Init
    ***********************/
+  function hookVerticalViewportSplitter(){
+    var splitter = $('#footerSplitter');
+    var trackPanel = $('#trackPanel');
+    var trackView = $('#trackView');
+    if (!splitter || !trackPanel || !trackView) return;
+    var dragging = false;
+    var startY = 0;
+    var startHeight = 0;
+    splitter.addEventListener('mousedown', function(e){
+      dragging = true;
+      startY = e.clientY;
+      startHeight = trackView.getBoundingClientRect().height;
+      splitter.classList.add('dragging');
+      e.preventDefault();
+    });
+    window.addEventListener('mousemove', function(e){
+      if (!dragging) return;
+      var rect = trackPanel.getBoundingClientRect();
+      var toolbarH = ($('#trackToolbar')?.offsetHeight || 0) + ($('#actionDockWrap')?.offsetHeight || 0) + splitter.offsetHeight;
+      var minView = 220;
+      var maxView = Math.max(minView, rect.height - toolbarH - 80);
+      var delta = e.clientY - startY;
+      var desired = Math.max(minView, Math.min(maxView, startHeight + delta));
+      trackView.style.flex = '0 0 ' + desired + 'px';
+      trackView.style.height = desired + 'px';
+    });
+    window.addEventListener('mouseup', function(){
+      dragging = false;
+      splitter.classList.remove('dragging');
+    });
+  }
+
   function hookPanelSplitter(){
     var splitter = $('#panelSplitter');
     var app = $('#app');
@@ -7175,6 +7259,7 @@ function openLegendsDeckEditor(){
     loadPolyStore();
   hookHeader();
   hookPanelSplitter();
+  hookVerticalViewportSplitter();
   updateBgUI();
   newGame();
 
