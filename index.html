@@ -178,6 +178,7 @@ body {
   grid-column: 2;
   grid-row: 1 / 3;
   cursor: col-resize;
+  touch-action: none;
   background: linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,.08), rgba(255,255,255,.02));
   border-left: 1px solid rgba(255,255,255,.03);
   border-right: 1px solid rgba(0,0,0,.35);
@@ -197,8 +198,9 @@ body {
   background: linear-gradient(180deg, rgba(20,15,11,.96), rgba(14,11,9,.98));
 }
 #footerSplitter {
-  height: 8px;
+  height: 12px;
   cursor: row-resize;
+  touch-action: none;
   background: linear-gradient(90deg, rgba(255,255,255,.02), rgba(255,255,255,.08), rgba(255,255,255,.02));
   border-top: 1px solid rgba(255,255,255,.03);
   border-bottom: 1px solid rgba(0,0,0,.35);
@@ -747,7 +749,8 @@ select option { background: #1f1710; }
 #trackFooter > *.log-collapsed, #trackFooter > *.dock-collapsed { align-self: end; }
 .dock-hd .dock-toggle, #logHeader .dock-toggle { margin-left:auto; }
 .standings-strip { display:flex; flex-direction:column; gap:6px; }
-#standingsDock .dock-bd { overflow-y:auto; height: calc(220px - 39px); max-height: calc(220px - 39px); }
+#standingsDock, #standingsDock .dock-pane, #standingsDock .dock-bd { min-height: 0; }
+#standingsDock .dock-bd { overflow-y:auto !important; height: calc(220px - 39px); max-height: calc(220px - 39px); -webkit-overflow-scrolling: touch; }
 .phase-rail { display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap:8px; margin-bottom:10px; }
 .phase-tab {
   text-align:center; padding:10px 8px; border-radius: 12px; border:1px solid var(--border);
@@ -784,7 +787,7 @@ select option { background: #1f1710; }
 .badgeStack { display:flex; flex-direction:column; gap:3px; align-items:flex-end; max-width:78%; }
 .badgeRow { display:flex; flex-direction:column; gap:3px; align-items:flex-end; }
 .badgeRow.conditions .badge { opacity: .96; }
-#logPanel .log { overflow-y: auto; height: calc(220px - 42px); max-height: calc(220px - 42px); }
+#logPanel .log { overflow-y: auto; height: calc(220px - 42px); max-height: calc(220px - 42px); -webkit-overflow-scrolling: touch; }
 .car { box-shadow: 0 10px 18px rgba(0,0,0,.34), inset 0 1px 0 rgba(255,255,255,.25); }
 
 #rightPanelInner { padding: 16px; gap: 14px; }
@@ -816,6 +819,17 @@ select option { background: #1f1710; }
 @media (max-width: 860px) { .wizard-grid-2, .wizard-grid-3, .setup-summary { grid-template-columns: 1fr; } }
 
 
+@media (max-width: 900px) {
+  #trackToolbar { gap: 6px; padding: 10px 12px; }
+  #trackToolbar .btn, #trackToolbar select, #trackToolbar input { min-height: 36px; }
+  #rightPanelInner { padding: 14px; }
+  #trackFooter { padding: 8px 10px 10px; }
+  .dock-pane .dock-hd, #logHeader { padding: 10px 12px; font-size: 12px; }
+  .hand { gap: 10px; }
+  .card { width: 86px; height: 118px; }
+  #panelSplitter { width: 14px; }
+  #footerSplitter { height: 16px; }
+}
 @media (max-width: 1200px) {
   #app { grid-template-columns: minmax(0,1fr) 8px 390px; }
   #trackFooter { grid-template-columns: 1fr; }
@@ -7209,28 +7223,33 @@ function openLegendsDeckEditor(){
     var dragging = false;
     var startY = 0;
     var startHeight = 0;
-    splitter.addEventListener('mousedown', function(e){
+    function clientYOf(e){ return e.touches ? e.touches[0].clientY : e.clientY; }
+    function start(e){
       dragging = true;
-      startY = e.clientY;
+      startY = clientYOf(e);
       startHeight = trackView.getBoundingClientRect().height;
       splitter.classList.add('dragging');
       e.preventDefault();
-    });
-    window.addEventListener('mousemove', function(e){
+    }
+    function move(e){
       if (!dragging) return;
       var rect = trackPanel.getBoundingClientRect();
       var toolbarH = ($('#trackToolbar')?.offsetHeight || 0) + ($('#actionDockWrap')?.offsetHeight || 0) + splitter.offsetHeight;
       var minView = 220;
       var maxView = Math.max(minView, rect.height - toolbarH - 80);
-      var delta = e.clientY - startY;
+      var delta = clientYOf(e) - startY;
       var desired = Math.max(minView, Math.min(maxView, startHeight + delta));
       trackView.style.flex = '0 0 ' + desired + 'px';
       trackView.style.height = desired + 'px';
-    });
-    window.addEventListener('mouseup', function(){
-      dragging = false;
-      splitter.classList.remove('dragging');
-    });
+      e.preventDefault();
+    }
+    function end(){ dragging = false; splitter.classList.remove('dragging'); }
+    splitter.addEventListener('mousedown', start);
+    splitter.addEventListener('touchstart', start, {passive:false});
+    window.addEventListener('mousemove', move);
+    window.addEventListener('touchmove', move, {passive:false});
+    window.addEventListener('mouseup', end);
+    window.addEventListener('touchend', end);
   }
 
   function hookPanelSplitter(){
@@ -7238,21 +7257,22 @@ function openLegendsDeckEditor(){
     var app = $('#app');
     if (!splitter || !app) return;
     var dragging = false;
-    splitter.addEventListener('mousedown', function(e){
-      dragging = true;
-      splitter.classList.add('dragging');
-      e.preventDefault();
-    });
-    window.addEventListener('mousemove', function(e){
+    function clientXOf(e){ return e.touches ? e.touches[0].clientX : e.clientX; }
+    function start(e){ dragging = true; splitter.classList.add('dragging'); e.preventDefault(); }
+    function move(e){
       if (!dragging) return;
       var rect = app.getBoundingClientRect();
-      var rightW = Math.max(300, Math.min(520, rect.right - e.clientX));
+      var rightW = Math.max(300, Math.min(520, rect.right - clientXOf(e)));
       app.style.gridTemplateColumns = 'minmax(0,1fr) 8px '+rightW+'px';
-    });
-    window.addEventListener('mouseup', function(){
-      dragging = false;
-      splitter.classList.remove('dragging');
-    });
+      e.preventDefault();
+    }
+    function end(){ dragging = false; splitter.classList.remove('dragging'); }
+    splitter.addEventListener('mousedown', start);
+    splitter.addEventListener('touchstart', start, {passive:false});
+    window.addEventListener('mousemove', move);
+    window.addEventListener('touchmove', move, {passive:false});
+    window.addEventListener('mouseup', end);
+    window.addEventListener('touchend', end);
   }
 
   loadBgStore();
