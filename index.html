@@ -172,6 +172,7 @@ body {
   display: flex; flex-direction: column;
   border-right: 1px solid var(--border);
   overflow: hidden;
+  min-height: 0;
 }
 
 #panelSplitter {
@@ -266,36 +267,36 @@ body {
 /* Car tokens */
 .car {
   position: relative;
-  width: 46px; height: 18px;
+  width: 50px; height: 22px;
   display: flex; align-items: center; justify-content: center;
   font-weight: 900; font-size: 8px; letter-spacing: .2px;
-  color: rgba(255,255,255,.95);
+  color: rgba(255,255,255,.96);
   text-shadow: 0 1px 2px rgba(0,0,0,.55);
-  border: 1px solid rgba(255,255,255,.35);
-  background: linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,.02));
-  clip-path: polygon(4% 18%, 18% 18%, 26% 0%, 78% 0%, 86% 18%, 96% 18%, 96% 38%, 84% 38%, 73% 100%, 27% 100%, 16% 38%, 4% 38%);
-  box-shadow: 0 8px 18px rgba(0,0,0,.34), inset 0 1px 0 rgba(255,255,255,.24);
+  border: 1px solid rgba(255,255,255,.28);
+  background: linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,.03));
+  clip-path: polygon(2% 74%, 7% 60%, 15% 52%, 18% 36%, 28% 31%, 38% 32%, 44% 16%, 58% 16%, 64% 32%, 75% 33%, 85% 40%, 98% 57%, 98% 73%, 92% 79%, 81% 79%, 75% 84%, 63% 84%, 58% 77%, 42% 77%, 36% 84%, 22% 84%, 15% 78%, 6% 78%);
+  box-shadow: 0 9px 16px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.22);
   transition: box-shadow .15s, transform .12s;
 }
 .car::before {
   content: "";
   position: absolute;
-  left: 14px; top: 3px;
-  width: 17px; height: 8px;
-  border-radius: 7px 7px 4px 4px;
-  background: rgba(18,18,18,.52);
+  left: 19px; top: 5px;
+  width: 12px; height: 5px;
+  border-radius: 6px 6px 3px 3px;
+  background: rgba(18,18,18,.46);
   box-shadow: inset 0 0 0 1px rgba(255,255,255,.16);
 }
 .car::after {
   content: "";
   position: absolute;
-  right: -1px; top: 6px;
-  width: 11px; height: 4px;
-  border-radius: 2px;
-  background: rgba(255,255,255,.26);
+  left: 8px; right: 6px; bottom: 2px;
+  height: 3px;
+  border-radius: 3px;
+  background: rgba(255,255,255,.12);
 }
 .car.active-car {
-  box-shadow: 0 0 0 2px var(--gold), 0 8px 18px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.24);
+  box-shadow: 0 0 0 2px var(--gold), 0 10px 20px rgba(0,0,0,.44), inset 0 1px 0 rgba(255,255,255,.24);
   transform: translateY(-1px);
 }
 .car.ai {
@@ -304,8 +305,9 @@ body {
 .car.ai .car-label, .car .car-label {
   position: relative;
   z-index: 2;
+  transform: translateY(-1px);
 }
-.carWrap { position: relative; display: flex; align-items: center; justify-content: center; min-height: 30px; }
+.carWrap { position: relative; display: flex; align-items: center; justify-content: center; min-height: 34px; }
 .carWrap.ai-tag::after {
   content: "AI"; position: absolute; bottom: -12px;
   font-size: 9px; font-weight: 700; color: var(--muted);
@@ -330,10 +332,15 @@ body {
   grid-row: 1 / 3;
   display: flex; flex-direction: column;
   overflow: hidden;
+  min-height: 0;
   background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.015));
 }
 #rightPanelInner {
-  flex: 1; overflow-y: auto;
+  flex: 1 1 auto; overflow-y: auto;
+  height: 100%;
+  min-height: 0;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   padding: 16px;
   display: flex; flex-direction: column; gap: 14px;
   background: radial-gradient(circle at top right, rgba(232,184,75,.08), transparent 36%);
@@ -496,6 +503,9 @@ body {
    CARDS
 ═══════════════════════════════════════════ */
 .hand { display: flex; flex-wrap: wrap; gap: 6px; }
+#rightPanel { overflow: hidden; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+#rightPanel .right-compact-cards, #rightPanel .pane-bd, #rightPanel .pane { min-height: 0; }
+#rightPanel .hand { overflow: visible; max-height: none; align-content: flex-start; padding-right: 0; }
 
 .card {
   width: 72px; height: 100px;
@@ -690,7 +700,7 @@ select option { background: #1f1710; }
 /* ═══════════════════════════════════════════
    UPGRADE LIST (hand details)
 ═══════════════════════════════════════════ */
-.upgList { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.upgList { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; max-height: 240px; overflow-y: auto; padding-right: 4px; -webkit-overflow-scrolling: touch; }
 .upgItem {
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -724,8 +734,8 @@ select option { background: #1f1710; }
   padding: 10px 12px 12px;
   border-top: 1px solid var(--border);
   background: linear-gradient(180deg, rgba(20,15,11,.96), rgba(14,11,9,.98));
-  align-items: end;
-  margin-top: auto;
+  align-items: stretch;
+  margin-top: 0;
 }
 #logPanel, #standingsDock, #actionDock { min-width: 0; }
 .dock-pane {
@@ -745,8 +755,7 @@ select option { background: #1f1710; }
 }
 .dock-pane .dock-bd { padding: 10px 12px; }
 .dock-collapsed .dock-bd, #logPanel.log-collapsed .log { display:none; }
-#logPanel.log-collapsed, .dock-collapsed { height: 48px !important; max-height: 48px !important; align-self: end; }
-#trackFooter > *.log-collapsed, #trackFooter > *.dock-collapsed { align-self: end; }
+#logPanel.log-collapsed, .dock-collapsed { height: 48px !important; max-height: 48px !important; }
 .dock-hd .dock-toggle, #logHeader .dock-toggle { margin-left:auto; }
 .standings-strip { display:flex; flex-direction:column; gap:6px; }
 #standingsDock, #standingsDock .dock-pane, #standingsDock .dock-bd { min-height: 0; }
@@ -1295,6 +1304,78 @@ function toast(msg) {
     [ 0.29904405355586355, 0.6342412451361867 ], [ 0.2560621865310147, 0.4889753566796368  ],
     [ 0.2560621865310147, 0.377431906614786   ], [ 0.2926424988925882, 0.2230869001297017  ]
   ],
+"mapTheme": "classic"
+}},
+
+  { id:"jp", name:"Japan (schematic)", track: {
+    id:"jp", name:"Japan(schematic)",
+  "spacesCount": 60,
+  "spotsPerSpace": 2,
+  "finishIndex": 0,
+  "lapsRequired": 2,
+  "corners": [
+    { "cornerLineIndex": 10, "speedLimit": 4 },
+    { "cornerLineIndex": 12, "speedLimit": 4 },
+    { "cornerLineIndex": 18, "speedLimit": 2 },
+    { "cornerLineIndex": 45, "speedLimit": 5 },
+    { "cornerLineIndex": 53, "speedLimit": 3 }
+  ],
+  "startGridStartIndex": 2,
+  "mapPoly": [
+    [ 0.4881624566617137, 0.5136239782016349   ], [ 0.6113351729993632, 0.5449591280653951   ],
+    [ 0.7082431189414845, 0.6253405994550408   ], [ 0.8123965187858204, 0.7084468664850136   ],
+    [ 0.8948135569235124, 0.6893732970027248   ], [ 0.9274180994834784, 0.6226158038147139   ],
+    [ 0.9319465081723626, 0.5653950953678474   ], [ 0.8667374230524305, 0.5286103542234333   ],
+    [ 0.8277931083280266, 0.4564032697547684   ], [ 0.8350385622302413, 0.385558583106267    ],
+    [ 0.8250760631146961, 0.29427792915531337  ], [ 0.9228896907945943, 0.1784741144414169   ],
+    [ 0.9681737776834359, 0.12942779291553133  ], [ 0.9437203707634614, 0.06130790190735695  ],
+    [ 0.8993419656123965, 0.04087193460490463  ], [ 0.8558692421991084, 0.10354223433242507  ],
+    [ 0.7299794806481285, 0.14168937329700274  ], [ 0.6375999433948913, 0.1989100817438692   ],
+    [ 0.6022783556215948, 0.279291553133515    ], [ 0.5914101747682728, 0.4550408719346049   ],
+    [ 0.5434090426661006, 0.7316076294277929   ], [ 0.4981249557772589, 0.832425068119891    ],
+    [ 0.4238590532795585, 0.8869209809264306   ], [ 0.300686336941909,  0.9196185286103542   ],
+    [ 0.11230453548432746, 0.9005449591280654  ], [ 0.05977499469327107, 0.7316076294277929  ],
+    [ 0.17751362060425954, 0.49318801089918257 ], [ 0.19291021014646573, 0.2970027247956403  ],
+    [ 0.25177952310195995, 0.24659400544959129 ], [ 0.30612042736857004, 0.28065395095367845 ],
+    [ 0.3713295124885021, 0.47411444141689374  ], [ 0.4881624566617137, 0.5136239782016349   ]
+  ],
+  
+  "mapTheme": "classic"
+    }},
+
+ { id:"barc", name:"Barcelona (schematic)", track: {
+      id:"barc", name:"Barcelona (schematic)",
+      "spacesCount": 54,
+  "spotsPerSpace": 2,
+  "finishIndex": 0,
+  "lapsRequired": 2,
+  "corners": [
+    { "cornerLineIndex": 9,  "speedLimit": 2 },
+    { "cornerLineIndex": 14, "speedLimit": 3 },
+    { "cornerLineIndex": 20, "speedLimit": 4 },
+    { "cornerLineIndex": 28, "speedLimit": 3 },
+    { "cornerLineIndex": 36, "speedLimit": 6 }
+  ],
+  "startGridStartIndex": 2,
+  "mapPoly": [
+    [ 0.5932215382438265, 0.3992297817715019   ], [ 0.47367154885728435, 0.2362002567394095  ],
+    [ 0.23909997877308428,0.11553273427471117  ], [ 0.16121134932427653, 0.1245186136071887  ],
+    [ 0.12951248850208733, 0.15661103979460847 ], [ 0.20921248142644874, 0.21566110397946084 ],
+    [ 0.25540225005306727, 0.3196405648267009  ], [ 0.27713861175971133, 0.42233632862644416 ],
+    [ 0.24906247788862945, 0.45186136071887034 ], [ 0.18838180145758154, 0.43774069319640563 ],
+    [ 0.16936248496426803, 0.3491655969191271  ], [ 0.12498407981320314, 0.30166880616174585 ],
+    [ 0.07607726597325408, 0.42105263157894735 ], [ 0.06249203990660157, 0.46983311938382544 ],
+    [ 0.14309771456873982, 0.5686777920410783  ], [ 0.2237033892308781, 0.613607188703466    ],
+    [ 0.2372886152975306,  0.9050064184852374  ], [ 0.48997382013726737, 0.9011553273427471  ],
+    [ 0.5370692705016628,  0.8536585365853658  ], [ 0.5714851765371824, 0.7933247753530167   ],
+    [ 0.5932215382438265, 0.7830551989730423   ], [ 0.6430340338215524, 0.8074454428754814   ],
+    [ 0.6973749380881624, 0.8562259306803595   ], [ 0.7589612962569872, 0.8729139922978177   ],
+    [ 0.8404726526569023, 0.7997432605905006   ], [ 0.9310408264345857, 0.6521181001283697   ],
+    [ 0.9355692351234699, 0.5481386392811296   ], [ 0.8721715134790915, 0.43645699614890887  ],
+    [ 0.8006226561947216, 0.42233632862644416  ], [ 0.7290737989103516, 0.4467265725288832   ],
+    [ 0.6557135781504281, 0.45186136071887034  ], [ 0.5932215382438265, 0.3992297817715019   ]
+  ],
+ 
   "mapTheme": "classic"
     }},
 
@@ -4360,14 +4441,20 @@ if (!hasWeatherSector && corners.length){
         <td><input data-upg-row="${i}" data-key="payHeat" value="${d.payHeat||0}" style="width:42px" /></td>
         <td><input data-upg-row="${i}" data-key="choices" value="${(d.choices||[]).join(',')}" style="width:78px" /></td>
         <td><input data-upg-row="${i}" data-key="limitMod" value="${d.limitMod||0}" style="width:42px" /></td>
+        <td><input data-upg-row="${i}" data-key="scrap" value="${d.scrap||0}" style="width:54px" /></td>
+        <td><input data-upg-row="${i}" data-key="salvage" value="${d.salvage||0}" style="width:54px" /></td>
+        <td><input type="checkbox" data-upg-row="${i}" data-key="refresh" ${d.refresh?'checked':''} /></td>
+        <td><input type="checkbox" data-upg-row="${i}" data-key="directPlay" ${d.directPlay?'checked':''} /></td>
+        <td><input type="checkbox" data-upg-row="${i}" data-key="accelerate" ${d.accelerate?'checked':''} /></td>
         <td><input type="checkbox" data-upg-row="${i}" data-key="overheat" ${d.overheat?'checked':''} /></td>
         <td><button class="btn danger" data-upg-del="${i}">×</button></td>
       </tr>`).join('');
     const jsonText = escapeHtml(JSON.stringify(defs, null, 2));
     const body = `${header}
       <div class="note" style="overflow:auto; max-height:44vh; margin-top:10px">
-        <table class="tbl" style="width:100%"><thead><tr><th>#</th><th>Lvl</th><th>Name</th><th>Spd</th><th>+</th><th>Cool</th><th>Stress</th><th>Slip</th><th>Heat</th><th>Choices</th><th>Limit</th><th>Overheat</th><th></th></tr></thead><tbody id="upgEditorRows">${rowHtml(defs)}</tbody></table>
+        <table class="tbl" style="width:100%"><thead><tr><th>#</th><th>Lvl</th><th>Name</th><th>Spd</th><th>+</th><th>Cool</th><th>Stress</th><th>Slip</th><th>Heat</th><th>Choices</th><th>Limit</th><th>Scrap</th><th>Salvage</th><th>Refresh</th><th>Direct</th><th>Accel</th><th>Overheat</th><th></th></tr></thead><tbody id="upgEditorRows">${rowHtml(defs)}</tbody></table>
       </div>
+      <div class="small muted" style="margin-top:8px">Direct = playable from hand during React. Accel = +1 speed for every + symbol used that turn.</div>
       <div class="row" style="margin-top:10px; gap:8px; flex-wrap:wrap"><button class="btn" id="upgAddRow">+ Add Card</button><button class="btn" id="upgCopyJson">Copy JSON</button></div>
       <div class="note" style="margin-top:10px"><strong>Bulk JSON</strong><textarea id="upgJson" style="width:100%; height:180px; margin-top:8px">${jsonText}</textarea><div class="row" style="justify-content:flex-end; margin-top:8px"><button class="btn" id="upgLoadJson">Load JSON</button><button class="btn primary" id="upgSave">Save Changes</button></div></div>`;
     openModal('Upgrade Cards Editor', body, 'View / add / remove / edit');
@@ -4390,6 +4477,11 @@ if (!hasWeatherSector && corners.length){
           payHeat: Number(get('payHeat').value || 0),
           choices: choicesRaw ? choicesRaw.split(',').map(x => Number(x.trim())).filter(Number.isFinite) : null,
           limitMod: Number(get('limitMod').value || 0),
+          scrap: Number(get('scrap').value || 0),
+          salvage: Number(get('salvage').value || 0),
+          refresh: !!get('refresh').checked,
+          directPlay: !!get('directPlay').checked,
+          accelerate: !!get('accelerate').checked,
           overheat: !!get('overheat').checked
         });
       });
@@ -4409,7 +4501,7 @@ if (!hasWeatherSector && corners.length){
     bindDeleteButtons();
     $('#upgAddRow').onclick = () => {
       const cur = readRows();
-      cur.push({num: cur.length+1, lvl:'basic', name:'Custom Upgrade', speed:0, plus:0, cooldown:0, reduceStress:0, slipBonus:0, payHeat:0, choices:null, limitMod:0, overheat:false});
+      cur.push({num: cur.length+1, lvl:'basic', name:'Custom Upgrade', speed:0, plus:0, cooldown:0, reduceStress:0, slipBonus:0, payHeat:0, choices:null, limitMod:0, scrap:0, salvage:0, refresh:false, directPlay:false, accelerate:false, overheat:false});
       $('#upgEditorRows').innerHTML = rowHtml(cur);
       bindDeleteButtons();
       syncJson();
@@ -4430,7 +4522,7 @@ if (!hasWeatherSector && corners.length){
       catch(e){ arr = readRows(); }
       if (!Array.isArray(arr) || !arr.length){ toast('Add at least one upgrade card.'); return; }
       UPGRADE_DEFS.splice(0, UPGRADE_DEFS.length, ...arr.map(d => ({
-        num: Number(d.num||1), lvl: d.lvl==='adv'?'adv':'basic', name: d.name||'Custom Upgrade', speed: d.speed===''?null:(d.speed==null?null:Number(d.speed||0)), plus: Number(d.plus||0), cooldown: Number(d.cooldown||0), reduceStress: Number(d.reduceStress||0), slipBonus: Number(d.slipBonus||0), payHeat: Number(d.payHeat||0), choices: Array.isArray(d.choices)?d.choices.map(Number).filter(Number.isFinite):(typeof d.choices==='string'&&d.choices.trim()?d.choices.split(',').map(x=>Number(x.trim())).filter(Number.isFinite):null), limitMod: Number(d.limitMod||0), overheat: !!d.overheat
+        num: Number(d.num||1), lvl: d.lvl==='adv'?'adv':'basic', name: d.name||'Custom Upgrade', speed: d.speed===''?null:(d.speed==null?null:Number(d.speed||0)), plus: Number(d.plus||0), cooldown: Number(d.cooldown||0), reduceStress: Number(d.reduceStress||0), slipBonus: Number(d.slipBonus||0), payHeat: Number(d.payHeat||0), choices: Array.isArray(d.choices)?d.choices.map(Number).filter(Number.isFinite):(typeof d.choices==='string'&&d.choices.trim()?d.choices.split(',').map(x=>Number(x.trim())).filter(Number.isFinite):null), limitMod: Number(d.limitMod||0), scrap: Number(d.scrap||0), salvage: Number(d.salvage||0), refresh: !!d.refresh, directPlay: !!d.directPlay, accelerate: !!d.accelerate, overheat: !!d.overheat
       })));
       closeModal();
       renderAll();
@@ -4957,15 +5049,34 @@ function upgradeCardFaceText(c){
     const keys = Object.keys(TRACK_LIBRARY||{}).filter(k=>k!=='custom');
     if (!keys.length) return Array.from({length:races},()=>getInitialTrackPresetId());
     if (preset === 'us'){
-      const usId = keys.find(k=>k.toLowerCase().includes('us')) || keys[0];
-      return Array.from({length:races},()=>usId);
+      const usKeys = keys.filter(k=>k.toLowerCase().includes('us'));
+      const pool = (usKeys.length ? usKeys : keys).slice();
+      const out = [];
+      while (out.length < races){
+        const batch = pool.slice();
+        shuffleInPlace(batch, rng);
+        for (const id of batch){
+          if (out.length >= races) break;
+          if (out.length && out[out.length-1] === id && batch.length > 1) continue;
+          out.push(id);
+        }
+      }
+      return out;
     }
-    // mixed
+    // mixed: use shuffled batches so tracks rotate before repeating,
+    // and avoid immediate back-to-back duplicates.
     const out = [];
-    for (let i=0;i<races;i++){
-      out.push(keys[Math.floor(rng()*keys.length)]);
+    while (out.length < races){
+      const batch = keys.slice();
+      shuffleInPlace(batch, rng);
+      for (const id of batch){
+        if (out.length >= races) break;
+        if (out.length && out[out.length-1] === id && batch.length > 1) continue;
+        out.push(id);
+      }
+      if (batch.length === 1 && out.length < races) out.push(batch[0]);
     }
-    return out;
+    return out.slice(0, races);
   }
 
   function champResetPlayerZones(p){
@@ -7195,7 +7306,7 @@ function openLegendsDeckEditor(){
   }
 
   function renderFinishedUI(){
-    var medals=['\ud83e\udd47','\ud83e\udd48','\ud83e\udd49'];
+    var medals=['🥇','🥈','🥉'];
     var order=G.finishedOrder.map(function(id,idx){
       var p=G.players.find(function(x){return x.id===id;});
       return '<div class="standing-row">'
@@ -7206,17 +7317,25 @@ function openLegendsDeckEditor(){
     }).join('');
     var champBlock='';
     if (G.modules.championship&&G.champ){
+      var pendingMap = (!G.champ.isComplete && G.champ.awardedRaceIndex !== G.champ.raceIndex) ? champPendingPointsMap() : {};
       var rows=champStandings().map(function(p,i){
-        return '<tr><td>'+(i+1)+'</td><td>'+escapeHtml(p.name)+'</td><td>'+((p.champ&&p.champ.points)||0)+'</td></tr>';
+        var base=((p.champ&&p.champ.points)||0);
+        var pending=(pendingMap[p.id]||0);
+        var ptsHtml=''+base;
+        if (pending>0) ptsHtml += ' <span class="muted" style="font-weight:700">(+ '+pending+')</span>';
+        return '<tr><td>'+(i+1)+'</td><td>'+escapeHtml(p.name)+'</td><td>'+ptsHtml+'</td></tr>';
       }).join('');
-      champBlock='<div class="pane"><div class="pane-hd">Championship Standings <span class="tag gold-tag">Race '+(G.champ.raceIndex+1)+'/'+G.champ.racesTotal+'</span></div>'
+      var actionBtn = G.champ.isComplete ? ''
+        : '<button class="btn primary cta" id="btnNextRace" style="width:100%;margin-top:10px">'
+          +((G.champ.raceIndex+1<G.champ.racesTotal)?'Next Race →':'End Championship')
+        +'</button>';
+      var raceTag = G.champ.isComplete ? 'Final' : ('Race '+(G.champ.raceIndex+1)+'/'+G.champ.racesTotal);
+      champBlock='<div class="pane"><div class="pane-hd">Championship Standings <span class="tag gold-tag">'+raceTag+'</span></div>'
         +'<div class="pane-bd"><table class="tbl"><thead><tr><th>#</th><th>Driver</th><th>Pts</th></tr></thead><tbody>'+rows+'</tbody></table>'
-        +'<button class="btn primary cta" id="btnNextRace" style="width:100%;margin-top:10px">'
-          +((G.champ.raceIndex+1<G.champ.racesTotal)?'Next Race \u2192':'End Championship')
-        +'</button></div></div>';
+        +actionBtn+'</div></div>';
     }
-    return '<div class="pane"><div class="pane-hd" style="color:var(--gold)">Race Finished! \ud83c\udfc1</div>'
-      +'<div class="pane-bd"><div class="standings">'+(order||'<div class="muted small">\u2014</div>')+'</div></div></div>'
+    return '<div class="pane"><div class="pane-hd" style="color:var(--gold)">Race Finished! 🏁</div>'
+      +'<div class="pane-bd"><div class="standings">'+(order||'<div class="muted small">—</div>')+'</div></div></div>'
       +champBlock
       +'<div class="row" style="gap:8px;justify-content:flex-end">'
         +'<button class="btn primary cta" id="btnRestart">Restart Race</button>'
@@ -7226,7 +7345,7 @@ function openLegendsDeckEditor(){
 
 
 
-  /***********************
+  /*************************
    * Init
    ***********************/
   function hookVerticalViewportSplitter(){
